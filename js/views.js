@@ -101,7 +101,7 @@
       <p style="font-size:.78rem; color:var(--ink-soft); margin-top:4px;">2+ faltas (não justificadas) nas últimas 5 sessões.</p>
       ${list.length ? list.slice(0, 6).map((x) => `
         <div class="list-row" data-action="openAthlete" data-id="${x.atleta.id}">
-          <div class="avatar">${initials(x.atleta.nome)}</div>
+          ${U.avatarHtml(x.atleta.nome, x.atleta.foto)}
           <div style="flex:1;"><div class="primary-text">${esc(x.atleta.nome)}</div></div>
           <span class="chip" style="background:var(--danger-tint); color:var(--danger);">${x.faltas} falta(s)</span>
         </div>`).join("") : `<p style="color:var(--ink-soft)">Sem alertas de momento 🎉</p>`}
@@ -128,7 +128,7 @@
       <div class="eyebrow">Aniversários próximos (30 dias)</div>
       ${list.length ? list.map((x) => `
         <div class="list-row" data-action="openAthlete" data-id="${x.atleta.id}">
-          <div class="avatar">${initials(x.atleta.nome)}</div>
+          ${U.avatarHtml(x.atleta.nome, x.atleta.foto)}
           <div style="flex:1;"><div class="primary-text">${esc(x.atleta.nome)}</div><div class="secondary-text">${x.diffDays === 0 ? "Hoje!" : "Daqui a " + x.diffDays + " dia(s)"}</div></div>
         </div>`).join("") : `<p style="color:var(--ink-soft)">Sem aniversários nos próximos 30 dias.</p>`}
     </div>`;
@@ -203,7 +203,7 @@
       const g = grupoById[a.grupoId];
       return `
         <div class="list-row" data-action="openAthlete" data-id="${a.id}">
-          <div class="avatar">${initials(a.nome)}</div>
+          ${U.avatarHtml(a.nome, a.foto)}
           <div style="flex:1; min-width:0;">
             <div class="primary-text">${esc(a.nome)} ${a.ativo ? "" : "<span style=\"color:var(--danger); font-size:.75rem;\">(inativo)</span>"}</div>
             <div class="secondary-text">${calcAge(a.dataNascimento)} anos · ${esc(turmaById[a.turmaId] ? turmaById[a.turmaId].nome : "—")}</div>
@@ -240,6 +240,14 @@
       <div class="modal-head"><h3>${atleta ? "Editar atleta" : "Novo atleta"}</h3><button class="icon-btn" data-action="closeModal">✕</button></div>
       <form data-form="saveAthlete">
         <input type="hidden" name="id" value="${a.id || ""}">
+        <input type="hidden" name="fotoAtual" value="${esc(a.foto || "")}">
+        <div class="field" style="display:flex; align-items:center; gap:14px;">
+          <div id="foto-preview">${U.avatarHtml(a.nome || "Novo atleta", a.foto, "width:56px;height:56px;font-size:1.2rem;")}</div>
+          <div>
+            <label style="display:block;">Fotografia (opcional)</label>
+            <input type="file" accept="image/*" id="foto-input" style="font-size:.8rem;">
+          </div>
+        </div>
         <div class="field"><label>Nome completo</label><input name="nome" required value="${esc(a.nome || "")}"></div>
         <div class="field-row">
           <div class="field"><label>Data de nascimento</label><input type="date" name="dataNascimento" value="${a.dataNascimento || ""}"></div>
@@ -263,6 +271,17 @@
         </div>
       </form>
     `;
+  }
+  function afterAthleteForm() {
+    const input = document.getElementById("foto-input");
+    if (!input) return;
+    input.addEventListener("change", async () => {
+      const file = input.files[0];
+      if (!file) return;
+      const dataUrl = await U.resizeImageFile(file, 240);
+      document.getElementById("foto-preview").innerHTML = U.avatarHtml("", dataUrl, "width:56px;height:56px;");
+      input.dataset.resized = dataUrl;
+    });
   }
 
   // ---------------------------------------------------------------
@@ -291,7 +310,7 @@
       <a href="#/atletas" style="font-size:.85rem; color:var(--ink-soft); text-decoration:none;">← Todos os atletas</a>
       <div class="section-title" style="margin-top:10px;">
         <div style="display:flex; align-items:center; gap:14px;">
-          <div class="avatar" style="width:52px;height:52px;font-size:1.1rem;">${initials(atleta.nome)}</div>
+          ${U.avatarHtml(atleta.nome, atleta.foto, "width:52px;height:52px;font-size:1.1rem;")}
           <div>
             <h2>${esc(atleta.nome)}</h2>
             <div class="secondary-text">${calcAge(atleta.dataNascimento)} anos · ${esc(turma ? turma.nome : "—")} ${grupo ? `· <span class="chip ${grupoClass(grupo.ordem)}">${esc(grupo.nome)}</span>` : ""}</div>
@@ -326,6 +345,11 @@
             <div class="eyebrow">Acesso do atleta / encarregado de educação</div>
             <p style="margin-top:6px; color:var(--ink-soft); font-size:.86rem;">Convida o encarregado de educação a acompanhar a evolução, os objetivos e a enviar mensagens.</p>
             <button class="btn btn-ghost btn-sm" style="margin-top:8px;" data-action="inviteAthleteAccount" data-id="${atleta.id}">+ Convidar por email</button>
+          </div>
+          <div class="card" style="margin-top:14px;">
+            <div class="eyebrow">Código de check-in (QR)</div>
+            <p style="margin-top:6px; color:var(--ink-soft); font-size:.86rem;">Mostra ou imprime este código — a equipa técnica lê-o na página de Check-in para marcar presença automaticamente.</p>
+            <div style="max-width:160px; margin-top:10px;">${Views.qrSvgFor(atleta.id, 4)}</div>
           </div>` : ""}
       </div>
 
@@ -515,13 +539,19 @@
   }
 
   // ---------------------------------------------------------------
-  // Mesociclos (macro/meso) + padrão de microciclo
+  // Época (configurada pelo Manager) + Mesociclos + padrão de microciclo
   // ---------------------------------------------------------------
+  const DIA_CURTO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
   async function mesociclos() {
     const turmaId = await currentTurmaId();
-    const [listRaw, turma] = await Promise.all([DB.getAll("mesociclos"), DB.get("turmas", turmaId)]);
+    const [listRaw, turma, sessoesRaw] = await Promise.all([DB.getAll("mesociclos"), DB.get("turmas", turmaId), DB.getAll("sessoes")]);
     const list = U.byTurma(listRaw);
+    const nSessoes = U.byTurma(sessoesRaw).length;
     const canEdit = Auth.isAdmin();
+    const diasSemana = (turma && turma.diasSemana) || [];
+    const feriados = (turma && turma.feriados) || [];
+
     const rows = list.sort((a, b) => a.dataInicio.localeCompare(b.dataInicio)).map((m) => `
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -535,28 +565,72 @@
       </div>
     `).join("");
 
-    const pattern = (turma && turma.padraoMicrociclo) || { 1: { 3: "Trampolim", 5: "Solo" }, 2: { 3: "Tumbling", 5: "Trampolim" }, 3: { 3: "Solo", 5: "Tumbling" }, 0: { 3: "Acrobática", 5: "Trampolim" } };
-    const tipos = ["Trampolim", "Tumbling", "Solo", "Acrobática"];
+    const pattern = (turma && turma.padraoMicrociclo) || (diasSemana.length ? Season.defaultPattern(diasSemana) : {});
+    const tipos = Season.TIPOS;
     const weekLabel = { 1: "Semana 1", 2: "Semana 2", 3: "Semana 3", 0: "Semana 4" };
 
     return `
-      <div class="section-title"><h2>Macrociclo &amp; Mesociclos</h2>${canEdit ? `<button class="btn btn-accent" data-action="newMeso">+ Novo mesociclo</button>` : ""}</div>
+      <div class="section-title"><h2>Época e Mesociclos</h2></div>
       <div class="mat-line"></div>
-      <p style="color:var(--ink-soft);">O <strong>macrociclo</strong> é a época inteira (Set/2026 – Jul/2027); cada <strong>mesociclo</strong> é um período de várias semanas com um foco técnico; o <strong>microciclo</strong> é o padrão semanal que se repete a cada 4 semanas.</p>
+      <p style="color:var(--ink-soft);">Define aqui os dias/horário de treino e o período da época — a app gera automaticamente todas as sessões entre essas datas, saltando os feriados que definires. O <strong>macrociclo</strong> é a época inteira; cada <strong>mesociclo</strong> é um período com um foco técnico; o <strong>microciclo</strong> é o padrão semanal que se repete a cada 4 semanas.</p>
 
-      <div class="grid cols-2" style="margin-top:14px; align-items:start;">
-        <div>${rows}</div>
+      <div class="card" style="margin-top:14px;">
+        <div class="eyebrow">Configuração da época</div>
+        <form data-form="saveEpocaConfig" style="margin-top:10px;">
+          <div class="field-row">
+            <div class="field"><label>Início da época</label><input type="date" name="epocaInicio" value="${turma && turma.epocaInicio || ""}" ${canEdit ? "" : "disabled"}></div>
+            <div class="field"><label>Fim da época</label><input type="date" name="epocaFim" value="${turma && turma.epocaFim || ""}" ${canEdit ? "" : "disabled"}></div>
+          </div>
+          <div class="field">
+            <label>Dias de treino</label>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
+              ${DIA_CURTO.map((d, i) => `
+                <label style="display:flex; align-items:center; gap:5px; font-size:.85rem; background:var(--paper-2); padding:6px 10px; border-radius:8px;">
+                  <input type="checkbox" name="diasSemana" value="${i}" ${diasSemana.includes(i) ? "checked" : ""} style="width:auto;" ${canEdit ? "" : "disabled"}> ${d}
+                </label>`).join("")}
+            </div>
+          </div>
+          <div class="field"><label>Horário</label><input name="horario" value="${esc(turma && turma.horario || "")}" placeholder="Ex.: 18:00-19:00" ${canEdit ? "" : "disabled"}></div>
+          ${canEdit ? `<button type="submit" class="btn btn-primary btn-sm">Guardar configuração</button>` : ""}
+        </form>
+
+        <div class="mat-line"></div>
+        <div class="eyebrow">Feriados / pausas (não há treino nestas datas)</div>
+        <table class="simple" style="margin-top:8px;">
+          <tbody>
+            ${feriados.sort((a, b) => a.data.localeCompare(b.data)).map((f) => `
+              <tr><td>${fmtDateShort(f.data)}</td><td>${esc(f.nome)}</td><td>${canEdit ? `<button class="icon-btn" data-action="removeFeriado" data-data="${f.data}">🗑</button>` : ""}</td></tr>
+            `).join("") || `<tr><td colspan="3" style="color:var(--ink-soft)">Sem feriados definidos.</td></tr>`}
+          </tbody>
+        </table>
+        ${canEdit ? `
+          <form data-form="addFeriado" class="field-row" style="margin-top:10px; align-items:flex-end;">
+            <div class="field" style="margin-bottom:0;"><label>Data</label><input type="date" name="data" required></div>
+            <div class="field" style="margin-bottom:0; flex:2;"><label>Nome</label><input name="nome" required placeholder="Ex.: Natal"></div>
+            <button type="submit" class="btn btn-ghost btn-sm">+ Adicionar</button>
+          </form>` : ""}
+
+        ${canEdit ? `
+          <div class="mat-line"></div>
+          <button class="btn btn-accent btn-sm" data-action="gerarSessoesEpoca">🔁 Gerar / regenerar sessões da época</button>
+          <div class="perm-note">Atualmente esta turma tem ${nSessoes} sessões geradas. Gerar de novo substitui as sessões ainda não realizadas pelas novas datas/tipos — sessões já marcadas como realizadas (com presenças) não são apagadas.</div>
+        ` : ""}
+      </div>
+
+      <div class="section-title" style="margin-top:20px;"><h3 style="font-size:1.05rem;">Mesociclos</h3>${canEdit ? `<button class="btn btn-accent btn-sm" data-action="newMeso">+ Novo mesociclo</button>` : ""}</div>
+      <div class="grid cols-2" style="margin-top:10px; align-items:start;">
+        <div>${rows || `<div class="empty-state">Sem mesociclos definidos.</div>`}</div>
         <div class="card">
           <div class="eyebrow">Padrão do microciclo (4 semanas)</div>
+          ${diasSemana.length ? `
           <form data-form="saveMicrociclo" style="margin-top:10px;">
             <table class="simple">
-              <thead><tr><th></th><th>Quarta</th><th>Sexta</th></tr></thead>
+              <thead><tr><th></th>${diasSemana.map((d) => `<th>${DIA_CURTO[d]}</th>`).join("")}</tr></thead>
               <tbody>
                 ${[1, 2, 3, 0].map((w) => `
                   <tr>
                     <td>${weekLabel[w]}</td>
-                    <td><select name="w${w}_3">${tipos.map((t) => `<option ${pattern[w][3] === t ? "selected" : ""}>${t}</option>`).join("")}</select></td>
-                    <td><select name="w${w}_5">${tipos.map((t) => `<option ${pattern[w][5] === t ? "selected" : ""}>${t}</option>`).join("")}</select></td>
+                    ${diasSemana.map((d) => `<td><select name="w${w}_${d}">${tipos.map((t) => `<option ${(pattern[w] && pattern[w][d]) === t ? "selected" : ""}>${t}</option>`).join("")}</select></td>`).join("")}
                   </tr>`).join("")}
               </tbody>
             </table>
@@ -566,8 +640,8 @@
                 <button type="button" class="btn btn-ghost btn-sm" data-action="applyMicrociclo">Aplicar a sessões futuras (a partir de hoje)</button>
               </div>
               <div class="perm-note">"Aplicar a sessões futuras" só recalcula sessões planeadas ainda não realizadas — não apaga presenças nem comentários já registados.</div>
-            ` : `<div class="perm-note">Só o administrador pode alterar o padrão do microciclo.</div>`}
-          </form>
+            ` : `<div class="perm-note">Só o gestor pode alterar o padrão do microciclo.</div>`}
+          </form>` : `<p style="color:var(--ink-soft)">Define primeiro os dias de treino, acima.</p>`}
         </div>
       </div>
     `;
@@ -598,7 +672,7 @@
     dashboard, atletasList, atletaDetail, grupos, turmas, mesociclos,
     _helpers: {
       athleteFormHtml, groupFormHtml, turmaFormHtml, mesoFormHtml, currentTurmaId, attLabel, commentBoxHtml,
-      WIDGET_DEFS, getDashboardPrefs, saveDashboardPrefs, dashboardSettingsHtml,
+      WIDGET_DEFS, getDashboardPrefs, saveDashboardPrefs, dashboardSettingsHtml, afterAthleteForm,
     },
   });
   global.afterRenderHooks = global.afterRenderHooks || [];

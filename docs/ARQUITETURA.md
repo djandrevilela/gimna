@@ -1,4 +1,8 @@
+
+
 # AnimaKids — Arquitetura e Caminho para Produção
+
+**Atualização:** a pasta `backend/` já tem um servidor real e testado (Node/Express + SQLite + JWT + Web Push) que implementa tudo o que está descrito abaixo como "Opção A" — só que em Node em vez de ASP.NET, por ser mais rápido de pôr a funcionar já. Ver `backend/README.md` para o correr localmente em 2 minutos. As secções abaixo continuam válidas para perceberes as escolhas e as alternativas (incluindo trocar para ASP.NET/SQL Server ou Supabase se preferires).
 
 Este documento explica o que está construído, o que falta para produção, e as opções de stack — incluindo uma alternativa mais rápida/barata do que ASP.NET MVC + SQL Server, tal como foi pedido.
 

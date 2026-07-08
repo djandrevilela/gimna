@@ -67,7 +67,7 @@
           <div class="eyebrow">Conversas com atletas / encarregados de educação</div>
           ${rows.length ? rows.map((r) => `
             <div class="list-row" data-action="openThread" data-id="${r.a.id}">
-              <div class="avatar">${initials(r.a.nome)}</div>
+              ${U.avatarHtml(r.a.nome, r.a.foto)}
               <div style="flex:1; min-width:0;">
                 <div class="primary-text">${esc(r.a.nome)}</div>
                 <div class="secondary-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(r.last.texto)}</div>

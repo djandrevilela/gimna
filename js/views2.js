@@ -103,11 +103,13 @@
     }
 
     const grupoById = Object.fromEntries(grupos.map((g) => [g.id, g]));
+    const turmaGrupos = grupos.filter((g) => g.turmaId === s.turmaId).sort((a, b) => a.ordem - b.ordem);
     const turmaAtletas = atletas.filter((a) => a.turmaId === s.turmaId && a.ativo).sort((x, y) => {
       const gx = (grupoById[x.grupoId] && grupoById[x.grupoId].ordem) || 9;
       const gy = (grupoById[y.grupoId] && grupoById[y.grupoId].ordem) || 9;
       return gx - gy || x.nome.localeCompare(y.nome);
     });
+    const atletaById = Object.fromEntries(atletas.map((a) => [a.id, a]));
     const presByAthlete = Object.fromEntries(presencas.filter((p) => p.sessaoId === id).map((p) => [p.atletaId, p]));
     const mesosAll = await DB.getAll("mesociclos");
     const sessComments = comentarios.filter((c) => c.targetType === "sessao" && c.targetId === id).sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
@@ -155,6 +157,43 @@
             </div>
           ` : `<p style="white-space:pre-line;">${esc(s.planoConteudo || "Sem plano definido.")}</p>`}
         </div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="eyebrow">Planos específicos por grupo</div>
+          <p style="font-size:.82rem; color:var(--ink-soft); margin-top:4px;">Adapta o conteúdo geral a cada nível — fica em branco se seguir só o plano geral.</p>
+          ${turmaGrupos.length ? turmaGrupos.map((g) => `
+            <div style="margin-top:12px;">
+              <label style="font-size:.85rem; font-weight:600; display:block; margin-bottom:5px;"><span class="chip ${U.grupoClass(g.ordem)}">${esc(g.nome)}</span></label>
+              ${canEdit ? `
+                <textarea data-plano-grupo="${g.id}" style="width:100%; min-height:70px; padding:8px; border:1.5px solid var(--line); border-radius:8px;">${esc((s.planosGrupo && s.planosGrupo[g.id]) || "")}</textarea>
+              ` : `<p style="font-size:.88rem;">${esc((s.planosGrupo && s.planosGrupo[g.id]) || "Sem plano específico — segue o plano geral.")}</p>`}
+            </div>
+          `).join("") : `<p style="color:var(--ink-soft)">Esta turma ainda não tem grupos criados.</p>`}
+          ${canEdit && turmaGrupos.length ? `<button class="btn btn-primary btn-sm" style="margin-top:12px;" data-action="saveGroupPlans" data-id="${s.id}">Guardar planos por grupo</button>` : ""}
+        </div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="eyebrow">Notas específicas por atleta</div>
+          ${Object.keys(s.planosAtleta || {}).length ? Object.entries(s.planosAtleta).map(([aid, texto]) => {
+            const at = atletaById[aid];
+            if (!at || !texto) return "";
+            return `
+              <div style="padding:8px 0; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:flex-start;">
+                ${U.avatarHtml(at.nome, at.foto, "width:30px;height:30px;font-size:.7rem;")}
+                <div style="flex:1;"><strong style="font-size:.85rem;">${esc(at.nome)}</strong><div style="font-size:.86rem;">${esc(texto)}</div></div>
+                ${canEdit ? `<button class="icon-btn" data-action="removeAthletePlan" data-id="${s.id}" data-athlete="${aid}">🗑</button>` : ""}
+              </div>`;
+          }).join("") : `<p style="color:var(--ink-soft)">Sem notas específicas por atleta nesta sessão.</p>`}
+          ${canEdit ? `
+            <form data-form="addAthletePlan" style="margin-top:12px;">
+              <input type="hidden" name="sessaoId" value="${s.id}">
+              <div class="field-row">
+                <div class="field"><label>Atleta</label><select name="atletaId">${turmaAtletas.map((a) => `<option value="${a.id}">${esc(a.nome)}</option>`).join("")}</select></div>
+              </div>
+              <div class="field"><textarea name="texto" placeholder="Nota específica para este atleta nesta sessão…" required></textarea></div>
+              <button type="submit" class="btn btn-ghost btn-sm">+ Adicionar nota</button>
+            </form>` : ""}
+        </div>
       </div>
 
       <div data-tab-panel="presencas" style="${activeTab === "presencas" ? "" : "display:none"}">
@@ -171,7 +210,7 @@
             const cur = presByAthlete[a.id];
             return `
               <div class="list-row" style="cursor:default;">
-                <div class="avatar">${initials(a.nome)}</div>
+                ${U.avatarHtml(a.nome, a.foto)}
                 <div style="flex:1;">
                   <div class="primary-text">${esc(a.nome)}</div>
                   ${g ? `<div class="secondary-text">${esc(g.nome)}</div>` : ""}
@@ -253,6 +292,16 @@
         <div class="eyebrow">A tua conta</div>
         <p style="margin-top:6px;"><strong>${esc(Auth.current.nome)}</strong><br>${esc(Auth.current.email)}</p>
         <div class="perm-note">O acesso à app é feito só por email + código — não há palavras-passe para memorizar nem para fugirem de um dispositivo partilhado.</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow">Notificações</div>
+        <p style="margin-top:6px;">Estado neste dispositivo: <strong id="push-status">${("Notification" in window) ? (Notification.permission === "granted" ? "Ativadas ✅" : Notification.permission === "denied" ? "Bloqueadas pelo navegador" : "Ainda não ativadas") : "Não suportado neste navegador"}</strong></p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+          <button class="btn btn-ghost btn-sm" data-action="enableNotifications">Ativar notificações</button>
+          <button class="btn btn-ghost btn-sm" data-action="testNotification">Enviar notificação de teste</button>
+        </div>
+        <div class="perm-note">Isto ativa notificações locais neste aparelho (funciona já — experimenta o botão de teste). Para receberes avisos com a app fechada, é preciso um servidor a enviar os pushes — o backend incluído no pacote já tem esse endpoint pronto (ver docs/ARQUITETURA.md).</div>
       </div>
 
       <div class="card">
@@ -373,7 +422,7 @@
           <p style="font-size:.78rem; color:var(--ink-soft); margin-top:4px;">2+ faltas (não justificadas) nas últimas 5 sessões da respetiva turma.</p>
           ${seguimento.length ? seguimento.map((x) => `
             <div class="list-row" data-action="openAthlete" data-id="${x.atleta.id}">
-              <div class="avatar">${initials(x.atleta.nome)}</div>
+              ${U.avatarHtml(x.atleta.nome, x.atleta.foto)}
               <div style="flex:1;"><div class="primary-text">${esc(x.atleta.nome)}</div></div>
               <span class="chip" style="background:var(--danger-tint); color:var(--danger);">${x.faltas}/${x.consideradas} faltas</span>
             </div>`).join("") : `<p style="color:var(--ink-soft)">Sem alertas de momento 🎉</p>`}
@@ -382,7 +431,7 @@
           <div class="eyebrow">Aniversários (60 dias)</div>
           ${aniversarios.length ? aniversarios.map((x) => `
             <div class="list-row" data-action="openAthlete" data-id="${x.atleta.id}">
-              <div class="avatar">${initials(x.atleta.nome)}</div>
+              ${U.avatarHtml(x.atleta.nome, x.atleta.foto)}
               <div style="flex:1;"><div class="primary-text">${esc(x.atleta.nome)}</div></div>
               <span class="secondary-text">${x.diffDays === 0 ? "Hoje!" : "em " + x.diffDays + " dia(s)"}</span>
             </div>`).join("") : `<p style="color:var(--ink-soft)">Sem aniversários nos próximos 60 dias.</p>`}
@@ -409,7 +458,7 @@
   function rankRow(r) {
     return `
       <div class="list-row" data-action="openAthlete" data-id="${r.atleta.id}">
-        <div class="avatar">${initials(r.atleta.nome)}</div>
+        ${U.avatarHtml(r.atleta.nome, r.atleta.foto)}
         <div style="flex:1;"><div class="primary-text">${esc(r.atleta.nome)}</div><div class="secondary-text">${r.presentes}/${r.total} sessões</div></div>
         <span class="chip" style="background:var(--primary-tint); color:var(--primary);">${r.pct}%</span>
       </div>`;

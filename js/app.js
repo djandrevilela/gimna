@@ -42,6 +42,32 @@
   function initials(nome) {
     return (nome || "?").split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
   }
+  function avatarHtml(nome, foto, style) {
+    style = style || "";
+    if (foto) return `<img src="${foto}" class="avatar" style="object-fit:cover;${style}" alt="">`;
+    return `<div class="avatar" style="${style}">${initials(nome)}</div>`;
+  }
+  async function resizeImageFile(file, maxSize) {
+    maxSize = maxSize || 200;
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = dataUrl;
+    });
+    const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  }
 
   function toast(msg) {
     let wrap = document.querySelector(".toast-wrap");
@@ -71,17 +97,19 @@
   // ---------------------------------------------------------------
   const NAV_MANAGER = [
     { route: "dashboard", label: "Início", ico: "🏠" },
+    { route: "checkin", label: "Check-in", ico: "📷" },
     { route: "atletas", label: "Atletas", ico: "🤸" },
     { route: "grupos", label: "Grupos", ico: "🧩" },
     { route: "calendario", label: "Calendário", ico: "📅" },
     { route: "estatisticas", label: "Estatísticas", ico: "📊" },
-    { route: "mesociclos", label: "Mesociclos", ico: "📈" },
+    { route: "mesociclos", label: "Época e Mesociclos", ico: "📈" },
     { route: "turmas", label: "Turmas", ico: "🏫" },
     { route: "mensagens", label: "Mensagens", ico: "💬" },
     { route: "definicoes", label: "Definições", ico: "⚙️" },
   ];
   const NAV_AJUDANTE = [
     { route: "dashboard", label: "Início", ico: "🏠" },
+    { route: "checkin", label: "Check-in", ico: "📷" },
     { route: "atletas", label: "Atletas", ico: "🤸" },
     { route: "grupos", label: "Grupos", ico: "🧩" },
     { route: "calendario", label: "Calendário", ico: "📅" },
@@ -104,8 +132,8 @@
   }
   function bottomNavFor() {
     if (!Auth.activeMembership) return ["dashboard"];
-    if (Auth.isManager()) return ["dashboard", "atletas", "calendario", "mensagens", "definicoes"];
-    if (Auth.isAjudante()) return ["dashboard", "atletas", "calendario", "estatisticas", "definicoes"];
+    if (Auth.isManager()) return ["dashboard", "checkin", "atletas", "calendario", "definicoes"];
+    if (Auth.isAjudante()) return ["dashboard", "checkin", "atletas", "calendario", "definicoes"];
     return ["dashboard", "meus-treinos", "objetivos", "mensagens", "definicoes"];
   }
 
@@ -115,7 +143,7 @@
     return { route: route || "dashboard", id: id || null };
   }
 
-  const ROTAS_STAFF = ["dashboard", "atletas", "grupos", "turmas", "mesociclos", "calendario", "estatisticas", "sessao", "definicoes", "mensagens"];
+  const ROTAS_STAFF = ["dashboard", "atletas", "grupos", "turmas", "mesociclos", "calendario", "estatisticas", "sessao", "definicoes", "mensagens", "checkin"];
   const ROTAS_ATLETA = ["dashboard", "meus-treinos", "minha-evolucao", "objetivos", "mensagens", "definicoes"];
 
   async function renderRoute() {
@@ -156,6 +184,7 @@
         case "estatisticas": html = await Views.estatisticas(); break;
         case "sessao": html = await Views.sessaoDetail(id); break;
         case "definicoes": html = await Views.definicoes(); break;
+        case "checkin": html = await Views.checkin(); break;
         case "mensagens": html = await Views.mensagens(id); break;
         case "meus-treinos": html = await Views.meusTreinos(); break;
         case "minha-evolucao": html = await Views.minhaEvolucao(); break;
@@ -178,7 +207,7 @@
     const titles = {
       dashboard: "Início", atletas: "Atletas", grupos: "Grupos de Treino", turmas: "Turmas", mesociclos: "Mesociclos",
       calendario: "Calendário da Época", estatisticas: "Estatísticas", sessao: "Sessão de Treino", definicoes: "Definições",
-      mensagens: "Mensagens", "meus-treinos": "Os Meus Treinos", "minha-evolucao": "A Minha Evolução", objetivos: "Objetivos da Época",
+      mensagens: "Mensagens", "meus-treinos": "Os Meus Treinos", "minha-evolucao": "A Minha Evolução", objetivos: "Objetivos da Época", checkin: "Check-in",
     };
     const h1 = document.getElementById("topbar-title");
     if (h1) h1.textContent = titles[route] || "AnimaKids";
@@ -441,5 +470,5 @@
   }
 
   // Expor utilitários para os outros ficheiros (views.js, actions.js)
-  global.U = { esc, calcAge, fmtDateShort, fmtDateTime, todayStr, tipoClass, grupoClass, initials, toast, openModal, closeModal, triggerInstall, renderRoute, renderShell, renderLogin, MESES, MESES_EXT, byTurma, byTenant };
+  global.U = { esc, calcAge, fmtDateShort, fmtDateTime, todayStr, tipoClass, grupoClass, initials, avatarHtml, resizeImageFile, toast, openModal, closeModal, triggerInstall, renderRoute, renderShell, renderLogin, MESES, MESES_EXT, byTurma, byTenant };
 })(window);

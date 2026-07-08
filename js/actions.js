@@ -22,20 +22,24 @@
       if (!requireAdmin()) return;
       const [turmas, grupos] = await Promise.all([DB.getAll("turmas"), DB.getAll("grupos")]);
       openModal(Views._helpers.athleteFormHtml(null, U.byTenant(turmas), U.byTurma(grupos)));
+      Views._helpers.afterAthleteForm();
     },
     editAthlete: async (ds) => {
       if (!requireAdmin()) return;
       const [atleta, turmas, grupos] = await Promise.all([DB.get("atletas", ds.id), DB.getAll("turmas"), DB.getAll("grupos")]);
       openModal(Views._helpers.athleteFormHtml(atleta, U.byTenant(turmas), U.byTurma(grupos)));
+      Views._helpers.afterAthleteForm();
     },
     saveAthlete: async (form) => {
       if (!requireAdmin()) return;
       const fd = new FormData(form);
       const id = fd.get("id") || undefined;
       const existing = id ? await DB.get("atletas", id) : null;
+      const fotoInput = form.querySelector("#foto-input");
+      const foto = (fotoInput && fotoInput.dataset.resized) || fd.get("fotoAtual") || (existing && existing.foto) || null;
       const record = Object.assign({}, existing, {
         id, tenantId: ctxTenant(),
-        nome: fd.get("nome"), dataNascimento: fd.get("dataNascimento"),
+        nome: fd.get("nome"), dataNascimento: fd.get("dataNascimento"), foto,
         turmaId: fd.get("turmaId"), grupoId: fd.get("grupoId") || null,
         encarregado: fd.get("encarregado"), contacto: fd.get("contacto"),
         notasMedicas: fd.get("notasMedicas"), ativo: fd.get("ativo") === "on",
@@ -147,8 +151,9 @@
       if (!requireAdmin()) return;
       const fd = new FormData(form);
       const turma = await DB.get("turmas", ctxTurma());
-      const pattern = {};
-      [1, 2, 3, 0].forEach((w) => { pattern[w] = { 3: fd.get("w" + w + "_3"), 5: fd.get("w" + w + "_5") }; });
+      const diasSemana = turma.diasSemana || [];
+      const pattern = { 1: {}, 2: {}, 3: {}, 0: {} };
+      [1, 2, 3, 0].forEach((w) => { diasSemana.forEach((d) => { pattern[w][d] = fd.get("w" + w + "_" + d); }); });
       turma.padraoMicrociclo = pattern;
       await DB.put("turmas", turma);
       toast("Padrão do microciclo guardado."); await renderRoute();
@@ -172,6 +177,54 @@
       toast(n + " sessão(ões) atualizada(s)."); await renderRoute();
     },
 
+    // ---------------- Configuração da época (definida pelo Manager) ----------------
+    saveEpocaConfig: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const turma = await DB.get("turmas", ctxTurma());
+      turma.epocaInicio = fd.get("epocaInicio") || null;
+      turma.epocaFim = fd.get("epocaFim") || null;
+      turma.diasSemana = fd.getAll("diasSemana").map((v) => parseInt(v, 10)).sort();
+      turma.horario = fd.get("horario") || "";
+      await DB.put("turmas", turma);
+      toast("Configuração da época guardada."); await renderRoute();
+    },
+    addFeriado: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const turma = await DB.get("turmas", ctxTurma());
+      turma.feriados = turma.feriados || [];
+      const data = fd.get("data");
+      if (turma.feriados.some((f) => f.data === data)) { toast("Já existe um feriado nessa data."); return; }
+      turma.feriados.push({ data, nome: fd.get("nome") });
+      await DB.put("turmas", turma);
+      toast("Feriado adicionado."); await renderRoute();
+    },
+    removeFeriado: async (ds) => {
+      if (!requireAdmin()) return;
+      const turma = await DB.get("turmas", ctxTurma());
+      turma.feriados = (turma.feriados || []).filter((f) => f.data !== ds.data);
+      await DB.put("turmas", turma);
+      toast("Feriado removido."); await renderRoute();
+    },
+    gerarSessoesEpoca: async () => {
+      if (!requireAdmin()) return;
+      const turma = await DB.get("turmas", ctxTurma());
+      if (!turma.epocaInicio || !turma.epocaFim || !turma.diasSemana || !turma.diasSemana.length) {
+        toast("Define primeiro o início, o fim e os dias de treino da época."); return;
+      }
+      if (!confirm("Gerar as sessões da época? As sessões planeadas (ainda não realizadas) serão substituídas pelas novas datas/tipos. Sessões já realizadas mantêm-se.")) return;
+      const mesociclos = U.byTurma(await DB.getAll("mesociclos"));
+      const existentes = U.byTurma(await DB.getAll("sessoes"));
+      const realizadasPorData = new Set(existentes.filter((s) => s.estado === "realizada").map((s) => s.data));
+      // remove todas as não-realizadas
+      for (const s of existentes) { if (s.estado !== "realizada") await DB.remove("sessoes", s.id); }
+      const geradas = Season.generateSessions(turma, mesociclos);
+      const novas = geradas.filter((s) => !realizadasPorData.has(s.data));
+      await DB.bulkPutSilent("sessoes", novas.map((s) => Object.assign({ id: DB.uuid() }, s)));
+      toast(novas.length + " sessões geradas."); await renderRoute();
+    },
+
     // ---------------- Calendário / sessão ----------------
     openSession: (ds) => { location.hash = "#/sessao/" + ds.id; },
     openThread: (ds) => { location.hash = "#/mensagens/" + ds.id; },
@@ -191,6 +244,30 @@
       await DB.put("sessoes", s);
       toast("Sessão atualizada."); await renderRoute();
     },
+    saveGroupPlans: async (ds) => {
+      if (!requireAdmin()) return;
+      const s = await DB.get("sessoes", ds.id);
+      s.planosGrupo = s.planosGrupo || {};
+      document.querySelectorAll("[data-plano-grupo]").forEach((ta) => { s.planosGrupo[ta.dataset.planoGrupo] = ta.value; });
+      await DB.put("sessoes", s);
+      toast("Planos por grupo guardados."); await renderRoute();
+    },
+    addAthletePlan: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const s = await DB.get("sessoes", fd.get("sessaoId"));
+      s.planosAtleta = s.planosAtleta || {};
+      s.planosAtleta[fd.get("atletaId")] = fd.get("texto");
+      await DB.put("sessoes", s);
+      toast("Nota adicionada."); await renderRoute();
+    },
+    removeAthletePlan: async (ds) => {
+      if (!requireAdmin()) return;
+      const s = await DB.get("sessoes", ds.id);
+      if (s.planosAtleta) delete s.planosAtleta[ds.athlete];
+      await DB.put("sessoes", s);
+      toast("Nota removida."); await renderRoute();
+    },
     markAttendance: async (ds) => {
       if (!Auth.can("markAttendance")) { toast("Sem permissão para marcar presenças."); return; }
       const presencas = await DB.getAll("presencas");
@@ -205,6 +282,37 @@
         }));
       }
       await renderRoute();
+    },
+    checkinManual: async (ds) => {
+      if (!Auth.can("markAttendance")) { toast("Sem permissão."); return; }
+      const presencas = await DB.getAll("presencas");
+      const existing = presencas.find((p) => p.sessaoId === ds.session && p.atletaId === ds.athlete);
+      await DB.put("presencas", Object.assign({}, existing, {
+        id: existing ? existing.id : undefined, tenantId: ctxTenant(),
+        sessaoId: ds.session, atletaId: ds.athlete, estado: "presente", marcadoPor: Auth.current.nome + " (check-in)",
+      }));
+      const btn = document.querySelector('[data-action="checkinManual"][data-athlete="' + ds.athlete + '"]');
+      if (btn) { btn.textContent = "✓ Feito"; btn.classList.remove("btn-ghost"); btn.classList.add("btn-primary"); }
+    },
+    checkinScanned: async (ds) => {
+      if (!Auth.can("markAttendance")) return;
+      const today = U.todayStr();
+      const sessoes = U.byTurma(await DB.getAll("sessoes"));
+      const sessaoHoje = sessoes.find((s) => s.data === today && s.tipo);
+      if (!sessaoHoje) return;
+      const atleta = await DB.get("atletas", ds.athlete);
+      if (!atleta || atleta.turmaId !== ctxTurma()) { toast("Código não reconhecido nesta turma."); return; }
+      const presencas = await DB.getAll("presencas");
+      const existing = presencas.find((p) => p.sessaoId === sessaoHoje.id && p.atletaId === ds.athlete);
+      if (existing && existing.estado === "presente") { return; }
+      await DB.put("presencas", Object.assign({}, existing, {
+        id: existing ? existing.id : undefined, tenantId: ctxTenant(),
+        sessaoId: sessaoHoje.id, atletaId: ds.athlete, estado: "presente", marcadoPor: Auth.current.nome + " (QR)",
+      }));
+      toast("✓ " + atleta.nome + " — check-in feito.");
+      // atualiza só o botão correspondente, sem recarregar a página (evita reiniciar a câmara)
+      const btn = document.querySelector('[data-action="checkinManual"][data-athlete="' + ds.athlete + '"]');
+      if (btn) { btn.textContent = "✓ Feito"; btn.classList.remove("btn-ghost"); btn.classList.add("btn-primary"); }
     },
 
     // ---------------- Comentários (internos, staff) ----------------
@@ -294,6 +402,20 @@
     },
 
     // ---------------- Definições ----------------
+    enableNotifications: async () => {
+      if (!("Notification" in window)) { toast("Este navegador não suporta notificações."); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { toast("Permissão não concedida."); await renderRoute(); return; }
+      toast("Notificações ativadas neste dispositivo.");
+      await renderRoute();
+    },
+    testNotification: async () => {
+      if (!("Notification" in window) || Notification.permission !== "granted") { toast("Ativa as notificações primeiro."); return; }
+      const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+      const opts = { body: "Notificação de teste — está a funcionar! 🎉", icon: "icons/icon-192.png" };
+      if (reg) reg.showNotification("AnimaKids", opts);
+      else new Notification("AnimaKids", opts);
+    },
     forceSync: async () => {
       const res = await DB.trySync();
       if (!res.ok) toast("Sem ligação à internet.");

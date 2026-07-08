@@ -31,14 +31,17 @@ O login real é por **email + código de 6 dígitos**. Como esta demo não tem s
 ## O que já funciona
 
 **Gestão (Gestor):**
-- Atletas, grupos, turmas, mesociclos/microciclo, calendário da época completo (feriados de Portugal/Sintra já excluídos).
-- Presenças rápidas (Presente / Falta / Falta Justificada / Doença).
+- Configuração completa da época: dias/horário de treino, datas de início/fim — a app gera automaticamente todas as sessões, saltando os feriados que definires.
+- Atletas (com fotografia), grupos, turmas, mesociclos totalmente personalizáveis, calendário da época.
+- Planos de treino em 3 níveis por sessão: plano geral, plano específico por grupo, e notas específicas por atleta.
+- Presenças rápidas, e agora também **check-in por QR code** — cada atleta tem um código único, lido pela câmara (ou por lista manual em navegadores sem suporte) à entrada do treino.
 - Convites por email para Ajudantes, outros Gestores (co-gestão) e Atletas/Encarregados de educação.
 - Criar novas turmas — o próprio ginásio pode ter várias classes.
 - Mensagens: responder às conversas dos atletas e enviar avisos gerais.
+- Notificações push (Web Push real, com backend incluído) e notificações locais de teste.
 - Estatísticas completas e dashboard personalizável por widgets.
 
-**Ajudante:** vê tudo, marca presenças e comenta — não edita nem acede a mensagens.
+**Ajudante:** vê tudo, marca presenças (incluindo check-in), e comenta — não edita nem acede a mensagens.
 
 **Atleta / Encarregado de Educação:**
 - A Minha Evolução (fases das 6 habilidades-alvo, % de presença).
@@ -51,6 +54,8 @@ O login real é por **email + código de 6 dígitos**. Como esta demo não tem s
 **Multi-tenant / SaaS:** cada ginásio (Tenant) tem o seu plano e limite de atletas; os Gestores pagam a subscrição, os Ajudantes/Atletas entram de graça através de convite.
 
 **Offline-first:** tudo funciona sem internet; um indicador mostra alterações por sincronizar.
+
+**Backend real incluído:** a pasta `backend/` tem um servidor Node/Express + SQLite genuíno e testado (auth por OTP, JWT, CRUD completo, push real) — ver `backend/README.md`. O frontend funciona sozinho (offline-local) ou pode ligar-se a este backend para partilhar dados entre dispositivos.
 
 ## Estrutura de ficheiros
 
