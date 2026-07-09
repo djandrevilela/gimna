@@ -1,6 +1,6 @@
 
 
-# AnimaKids — Arquitetura e Caminho para Produção
+# Gimna — Arquitetura e Caminho para Produção
 
 **Atualização:** a pasta `backend/` já tem um servidor real e testado (Node/Express + SQLite + JWT + Web Push) que implementa tudo o que está descrito abaixo como "Opção A" — só que em Node em vez de ASP.NET, por ser mais rápido de pôr a funcionar já. Ver `backend/README.md` para o correr localmente em 2 minutos. As secções abaixo continuam válidas para perceberes as escolhas e as alternativas (incluindo trocar para ASP.NET/SQL Server ou Supabase se preferires).
 
@@ -87,6 +87,18 @@ Uma pessoa (`Users`) pode ter várias `Memberships`, cada uma ligando-a a **uma 
 Duas tabelas de uso lógico dentro de `Mensagens` (mesma tabela, campo `Tipo`):
 - **`privada`**: uma conversa por atleta, entre essa conta de atleta/encarregado de educação e os gestores da turma. Só gestores respondem (os ajudantes não têm acesso a mensagens, por desenho). Isto é reforçado tanto na interface como sugerido para reforçar no backend (a API deve recusar a um `ajudante` publicar em `Mensagens`).
 - **`broadcast`**: aviso do gestor para todos os atletas da turma de uma vez.
+
+## 6.5 Mudar de servidor sem perder dados (e sem pagar já)
+
+O cenário mais seguro para "quero sair do Render, não quero perder nada, não quero pagar agora" tem duas partes independentes — vale a pena separá-las:
+
+**Parte 1 — o código (o teu backend Node/Express).** Isso é só ficheiros; qualquer alternativa ao Render que corra Node.js serve (Railway, Fly.io, DigitalOcean App Platform, etc.). O importante é ler as letras pequenas de cada uma antes de escolher, porque isto mudou várias vezes em 2025/2026: várias plataformas que costumavam ter "grátis para sempre" passaram a exigir cartão de crédito ou um crédito limitado por mês. Confirma sempre isto no site da própria plataforma antes de migrares, porque estas condições mudam com frequência.
+
+**Parte 2 — os dados (a base de dados SQLite).** Esta é a parte que importa mais para "não perder nada". Em vez de tentares encontrar uma plataforma de computação com disco persistente grátis (cada vez mais raro), a forma mais robusta é **separar os dados da computação**: usar uma base de dados gerida à parte (que não desaparece quando o teu serviço Node reinicia ou é substituído), e o teu Node.js só se liga a ela pela rede. Duas opções típicas com bons níveis gratuitos a explorar (confirma sempre os limites atuais antes de decidir, porque também mudam):
+- **Supabase** (Postgres gerido) — exigiria trocar `better-sqlite3` por um cliente Postgres (`pg`); as queries deste projeto são simples e a tradução é direta.
+- **Turso** (compatível com SQLite via rede) — normalmente o mais parecido ao que já tens, com menos código a mudar.
+
+**Salvaguarda simples, independente de tudo isto:** antes de qualqures migração ou redeploy, chama `GET /api/turmas/:id/exportar-tudo` (autenticado, com `X-Turma-Id`) — devolve tudo em JSON. Guarda esse ficheiro num local seguro (o teu computador, Google Drive, etc.) antes de qualquer mudança. Não é uma restauração automática (isso exigiria um pequeno script à parte, que não está incluído), mas garante que nunca perdes os dados de vista, mesmo que a infraestrutura falhe a meio de uma migração.
 
 ## 7. Sincronização offline → online
 

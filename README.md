@@ -1,4 +1,4 @@
-# AnimaKids — App de Gestão de Treino
+# Gimna — App de Gestão de Treino
 
 PWA (instalável a partir do Chrome) para gerir atletas, grupos de treino, o calendário/plano de treino da época, presenças, mensagens e progressão técnica — com contas de Gestor, Ajudante e Atleta/Encarregado de Educação, cada pessoa podendo pertencer a várias turmas (mesmo em ginásios diferentes). Funciona **offline** e sincroniza assim que há ligação.
 

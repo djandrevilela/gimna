@@ -1,5 +1,5 @@
 /* =========================================================
-   AnimaKids — Check-in por QR Code
+   Gimna — Check-in por QR Code
    ========================================================= */
 (function (global) {
   "use strict";

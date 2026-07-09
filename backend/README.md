@@ -1,4 +1,4 @@
-# AnimaKids — Backend real (Express + SQLite + JWT + Web Push)
+# Gimna — Backend real (Express + SQLite + JWT + Web Push)
 
 Backend genuíno e funcional (não é só uma maquete) que implementa: contas por email + código OTP, sessões via JWT, multi-turma/multi-tenant com controlo de acesso por papel (gestor/ajudante/atleta), CRUD de todas as entidades da app, geração automática das sessões da época, e notificações push reais (Web Push com VAPID).
 
@@ -49,15 +49,60 @@ routes/api.js      CRUD de turmas, grupos, atletas, mesociclos, sessões, presen
 routes/push.js     subscrição e envio de notificações push (Web Push/VAPID)
 ```
 
+## Limitações conhecidas da sincronização (por agora)
+
+- **Desmarcar uma presença** (voltar a "sem estado") só acontece localmente — o servidor guarda a última marcação enviada, não a remoção. Trocar de estado (Presente → Falta, etc.) sincroniza normalmente.
+- **Criar uma turma estando offline** fica guardada só localmente até voltares a ficar online e a entrares de novo — não há ainda envio automático desse caso específico para o servidor.
+- **Convites e gestão de acessos** (convidar por email, remover acesso) ainda só acontecem localmente quando testados sem ligação — usa-os com internet ligada.
+- **Resolução de conflitos** é "o último a gravar ganha" (por `updatedAt`), sem fusão inteligente — suficiente para uma equipa pequena, mas vale a pena saber que existe.
+
+Nenhuma destas limitações impede o uso normal do dia-a-dia (marcar presenças, gerir atletas, planos de treino) — só são casos de fronteira a ter em conta se dois dispositivos editarem exatamente a mesma coisa ao mesmo tempo sem internet.
+
+
+
+**Isto já está feito** — o frontend (pasta principal) já sabe falar com este backend. Só precisas de um passo:
+
+1. Abre `js/config.js` na pasta principal e muda o URL:
+   ```js
+   window.API_BASE_URL = "https://o-teu-servico.onrender.com"; // ou http://localhost:3001 para testares localmente
+   ```
+2. Volta a publicar o frontend (commit + push, se usares GitHub Pages/Render/Netlify a fazer deploy automático).
+
+A partir daí:
+- O login por email passa a ser real (o código já não aparece só no ecrã — vem deste servidor).
+- Cada gravação (criar atleta, marcar presença, etc.) grava primeiro no dispositivo e é enviada ao servidor automaticamente, quase em tempo real, sempre que há sessão online.
+- Ao entrar a partir de outro dispositivo com a mesma conta, os dados da turma são trazidos do servidor automaticamente.
+- Se a internet cair a meio de um treino, a app continua a funcionar (grava tudo localmente) e sincroniza sozinha assim que a ligação voltar, ou quando tocares no indicador no topo da app.
+
+Isto foi testado de ponta a ponta (não é só teoria): criei conta, criei turma, adicionei um atleta, confirmei que apareceu na base de dados do servidor, e confirmei que desligar o backend não parte a app (cai para o modo local automaticamente).
+
+## Lembretes diários (aniversários, treinos/eventos, avaliações)
+
+`POST /push/turmas/:id/lembretes-diarios` (autenticado, gestor) verifica, para essa turma: aniversários de atletas hoje, treinos/eventos de amanhã, e mesociclos terminados com avaliações em falta — e envia um push aos gestores/ajudantes com um resumo, se houver alguma novidade.
+
+Isto **não corre automaticamente sozinho** — precisa de alguém (ou algo) a chamá-lo uma vez por dia. Como o plano gratuito do Render adormece o serviço por inatividade, a forma mais simples e gratuita de resolver os dois problemas de uma vez é usar um serviço de cron externo gratuito (ex.: [cron-job.org](https://cron-job.org), grátis) para chamar este endpoint uma vez por dia — isso também mantém o serviço "acordado" nesse momento.
+
+## Backup antes de qualquer migração/redeploy
+
+`GET /api/turmas/:id/exportar-tudo` (autenticado, gestor) devolve todos os dados dessa turma em JSON. Vale a pena guardar isto antes de qualquer alteração grande de infraestrutura — ver `docs/ARQUITETURA.md`, secção 6.5.
+
 ## Ligar isto ao frontend
 
-O frontend (pasta principal) ainda funciona 100% em modo offline-local (IndexedDB) — é intencional, para poderes usar já sem backend nenhum. Para ligar os dois:
+**Isto já está feito** — o frontend (pasta principal) já sabe falar com este backend. Só precisas de um passo:
 
-1. Substituir as chamadas em `js/db.js` e `js/auth.js` por chamadas `fetch()` a este backend (mantendo a mesma fila `syncQueue` para continuar a funcionar offline).
-2. Guardar o `token` devolvido pelo login e enviá-lo em `Authorization: Bearer ...` em cada pedido.
-3. Guardar a `turmaId` ativa e enviá-la em `X-Turma-Id` em cada pedido.
+1. Abre `js/config.js` na pasta principal e muda o URL:
+   ```js
+   window.API_BASE_URL = "https://o-teu-servico.onrender.com"; // ou http://localhost:3001 para testares localmente
+   ```
+2. Volta a publicar o frontend (commit + push, se usares GitHub Pages/Render/Netlify a fazer deploy automático).
 
-Isto é o próximo passo de integração — ver `docs/ARQUITETURA.md` para mais contexto de arquitetura e alternativas (ex.: usar Supabase em vez deste backend, se preferires não gerir servidor nenhum).
+A partir daí:
+- O login por email passa a ser real (o código já não aparece só no ecrã — vem deste servidor).
+- Cada gravação (criar atleta, marcar presença, etc.) grava primeiro no dispositivo e é enviada ao servidor automaticamente, quase em tempo real, sempre que há sessão online.
+- Ao entrar a partir de outro dispositivo com a mesma conta, os dados da turma são trazidos do servidor automaticamente.
+- Se a internet cair a meio de um treino, a app continua a funcionar (grava tudo localmente) e sincroniza sozinha assim que a ligação voltar, ou quando tocares no indicador no topo da app.
+
+Isto foi testado de ponta a ponta (não é só teoria): criei conta, criei turma, adicionei um atleta, confirmei que apareceu na base de dados do servidor, e confirmei que desligar o backend não parte a app (cai para o modo local automaticamente).
 
 ## Notificações push — para funcionarem a sério
 
@@ -71,4 +116,4 @@ Por omissão, o código OTP não é enviado — aparece na resposta em modo `dev
 
 ## Publicar isto de graça
 
-Este backend corre em qualquer serviço que aceite Node.js: [Render](https://render.com), [Railway](https://railway.app) ou [Fly.io](https://fly.io) têm níveis gratuitos suficientes para começar. O SQLite funciona bem para um número pequeno/médio de ginásios; se cresceres muito, troca `better-sqlite3` por um Postgres gerido (ex.: o da Render, ou Supabase) — a estrutura das queries muda pouco.
+Este backend corre em qualquer serviço que aceite Node.js. As condições de free tier mudam com frequência nestas plataformas — confirma sempre no site de cada uma antes de decidir. [Render](https://render.com) continua a ser a opção mais simples para começar já; se precisares de trocar mais tarde, ver `docs/ARQUITETURA.md`, secção 6.5, para a estratégia de separar os dados (base de dados) da computação (o teu Node.js) para não perder nada em futuras migrações. O SQLite funciona bem para um número pequeno/médio de ginásios; se cresceres muito, considera um Postgres gerido (ex.: Supabase).

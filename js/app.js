@@ -1,5 +1,5 @@
 /* =========================================================
-   AnimaKids — aplicação (router + utilitários + shell)
+   Gimna — aplicação (router + utilitários + shell)
    ========================================================= */
 (function (global) {
   "use strict";
@@ -36,7 +36,12 @@
     return now.toISOString().slice(0, 10);
   }
   function tipoClass(tipo) {
-    return { Trampolim: "chip-trampolim", Tumbling: "chip-tumbling", Solo: "chip-solo", "Acrobática": "chip-acrobatica" }[tipo] || "";
+    const fixos = { Trampolim: "chip-c1", Tumbling: "chip-c2", Solo: "chip-c3", "Acrobática": "chip-c4" };
+    if (fixos[tipo]) return fixos[tipo];
+    const paleta = ["chip-c1", "chip-c2", "chip-c3", "chip-c4", "chip-c5", "chip-c6"];
+    let hash = 0;
+    for (let i = 0; i < (tipo || "").length; i++) hash = (hash * 31 + tipo.charCodeAt(i)) >>> 0;
+    return paleta[hash % paleta.length];
   }
   function grupoClass(ordem) { return "chip-grupo" + (ordem || 1); }
   function initials(nome) {
@@ -210,7 +215,7 @@
       mensagens: "Mensagens", "meus-treinos": "Os Meus Treinos", "minha-evolucao": "A Minha Evolução", objetivos: "Objetivos da Época", checkin: "Check-in",
     };
     const h1 = document.getElementById("topbar-title");
-    if (h1) h1.textContent = titles[route] || "AnimaKids";
+    if (h1) h1.textContent = titles[route] || "Gimna";
   }
 
   function closeSidebarMobile() {
@@ -236,12 +241,12 @@
       <div class="shell">
         <nav class="sidebar" id="sidebar">
           <div class="brand">
-            <div class="mark">AK</div>
-            <div class="name">AnimaKids</div>
+            <div class="mark">GM</div>
+            <div class="name">Gimna</div>
           </div>
           ${Auth.memberships.length > 1 ? `
             <div class="field" style="padding:0 8px 14px;">
-              <select id="turma-switcher" style="width:100%; background:rgba(255,255,255,.08); color:#fff; border-color:rgba(255,255,255,.25);">
+              <select id="turma-switcher" class="select-dark">
                 ${Auth.memberships.map((m) => `<option value="${m.id}" ${m.id === Auth.activeMembership.id ? "selected" : ""}>${esc((turmaNomeById[m.turmaId] || "") + " · " + ROLE_LABEL[m.role])}</option>`).join("")}
               </select>
             </div>
@@ -262,7 +267,7 @@
         <div class="main">
           <div class="topbar">
             <button class="menu-btn" id="btn-menu">☰</button>
-            <h1 id="topbar-title">AnimaKids</h1>
+            <h1 id="topbar-title">Gimna</h1>
             <div class="spacer"></div>
             <button class="sync-pill" id="sync-pill" type="button"><span class="dot"></span><span id="sync-label">A verificar…</span></button>
           </div>
@@ -339,8 +344,8 @@
     app.innerHTML = `
       <div class="login-screen">
         <div class="login-card">
-          <div class="mark">AK</div>
-          <h1>Entrar na AnimaKids</h1>
+          <div class="mark">GM</div>
+          <h1>Entrar no Gimna</h1>
           <div class="sub">O acesso é feito só com o teu email — sem palavras-passe.</div>
 
           <form id="email-form">
@@ -376,12 +381,19 @@
       e.preventDefault();
       const email = new FormData(e.target).get("email");
       pendingOtpEmail = email;
-      const codigo = await Auth.requestOtp(email, "login");
+      const result = await Auth.requestOtp(email);
       document.getElementById("email-form").style.display = "none";
       document.getElementById("otp-form").style.display = "block";
       const existing = await Auth.findUserByEmail(email);
       document.getElementById("nome-field").style.display = existing ? "none" : "block";
-      document.getElementById("otp-demo-note").innerHTML = `<strong>Modo demonstração:</strong> não há servidor de email ligado, por isso mostramos aqui o código que seria enviado para <strong>${esc(email)}</strong>: <strong style="font-size:1.1em; letter-spacing:.1em;">${codigo}</strong>. Em produção isto chegaria à caixa de correio (ver docs/ARQUITETURA.md).`;
+      const noteEl = document.getElementById("otp-demo-note");
+      if (result.online && !result.codigo) {
+        noteEl.innerHTML = `Enviámos um código para <strong>${esc(email)}</strong>. Verifica a tua caixa de correio.`;
+      } else if (result.online && result.codigo) {
+        noteEl.innerHTML = `<strong>Backend ligado, modo de desenvolvimento:</strong> o servidor não tem email real configurado, por isso devolve o código diretamente. Código para <strong>${esc(email)}</strong>: <strong style="font-size:1.1em; letter-spacing:.1em;">${result.codigo}</strong>.`;
+      } else {
+        noteEl.innerHTML = `<strong>Modo local (sem ligação ao servidor):</strong> mostramos aqui o código que seria enviado para <strong>${esc(email)}</strong>: <strong style="font-size:1.1em; letter-spacing:.1em;">${result.codigo}</strong>. Em produção isto chegaria à caixa de correio (ver docs/ARQUITETURA.md).`;
+      }
     });
 
     document.getElementById("btn-change-email").addEventListener("click", () => {
@@ -393,14 +405,26 @@
     document.getElementById("otp-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
-      const res = await Auth.verifyOtp(pendingOtpEmail, fd.get("codigo"));
-      if (!res.ok) { document.getElementById("login-error").textContent = res.error; return; }
-      await Auth.completeLoginOrSignup(pendingOtpEmail, fd.get("nome"));
+      const codigo = fd.get("codigo");
+      const nome = fd.get("nome");
+      if (Auth.onlineMode) {
+        try {
+          await Auth.verifyOtpOnline(pendingOtpEmail, codigo, nome);
+        } catch (err) {
+          document.getElementById("login-error").textContent = err.message || "Código inválido.";
+          return;
+        }
+      } else {
+        const res = await Auth.verifyOtp(pendingOtpEmail, codigo);
+        if (!res.ok) { document.getElementById("login-error").textContent = res.error; return; }
+        await Auth.completeLoginOrSignup(pendingOtpEmail, nome);
+      }
       await renderShell();
     });
 
     app.querySelectorAll('[data-action="demoLogin"]').forEach((btn) => {
       btn.addEventListener("click", async () => {
+        Auth.onlineMode = false; // as contas de demonstração são sempre locais
         await Auth.completeLoginOrSignup(btn.dataset.email);
         await renderShell();
       });

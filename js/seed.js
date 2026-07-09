@@ -1,5 +1,5 @@
 /* =========================================================
-   AnimaKids — dados iniciais (seed)
+   Gimna — dados iniciais (seed)
    A época (dias de treino, horário, período, feriados) já vem
    configurada na turma de demonstração, mas é 100% editável pelo
    Manager em "Época e Mesociclos" — ver js/season.js e js/actions.js.
@@ -55,8 +55,17 @@
         3: { 3: "Solo", 5: "Tumbling" },
         0: { 3: "Acrobática", 5: "Trampolim" },
       },
+      resumoObjetivos: "O objetivo desta época é preparar a turma para a classe de representação/competição, trabalhando de forma progressiva o mortal à frente e atrás no mini-trampolim, a rondada-flic-flac no solo, os saltos com passagem por pino no plinto e, para os atletas mais avançados, o barani. O trabalho está dividido em períodos (mesociclos), cada um com um foco técnico diferente.",
     };
     await DB.put("turmas", turma, { silent: true });
+
+    const microciclosSeed = [
+      { id: DB.uuid(), tenantId, turmaId, nome: "Trampolim", cor: "c1", ordem: 1, planoGenerico: "Aquecimento geral + preparação física específica.\nEstação por grupo — progressões de mortal à frente/atrás e barani, de acordo com a fase de cada grupo.", updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Tumbling", cor: "c2", ordem: 2, planoGenerico: "Aquecimento geral + preparação física específica.\nEstação por grupo — rondada, roda, flic-flac.", updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Solo", cor: "c3", ordem: 3, planoGenerico: "Aquecimento geral + preparação física específica.\nEstação por grupo — pino, equilíbrios, pino-roda-sentado.", updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Acrobática", cor: "c4", ordem: 4, planoGenerico: "Aquecimento geral + jogos de confiança.\nTrabalho a pares/trios adequado ao grupo.", updatedAt: new Date().toISOString() },
+    ];
+    await DB.bulkPutSilent("microciclosTipos", microciclosSeed);
 
     const activeKids = criarTenantSimples("ActiveKids", "Classe de multiatividades, 5-8 anos.");
     const gimnoKids = criarTenantSimples("GimnoKids", "Classe de iniciação à ginástica, 4-7 anos.");
@@ -65,9 +74,9 @@
 
     const uAndre = DB.uuid(), uRita = DB.uuid(), uLeonor = DB.uuid();
     await DB.bulkPutSilent("users", [
-      { id: uAndre, nome: "André Ferreira", email: "andre@animakids.pt", emailVerificado: true, criadoEm: new Date().toISOString() },
-      { id: uRita, nome: "Rita Almeida", email: "rita@animakids.pt", emailVerificado: true, criadoEm: new Date().toISOString() },
-      { id: uLeonor, nome: "Leonor Cardoso", email: "leonor@animakids.pt", emailVerificado: true, criadoEm: new Date().toISOString() },
+      { id: uAndre, nome: "André Ferreira", email: "andre@animakids.pt", dataNascimento: "1990-04-12", emailVerificado: true, criadoEm: new Date().toISOString() },
+      { id: uRita, nome: "Rita Almeida", email: "rita@animakids.pt", dataNascimento: "1995-09-03", emailVerificado: true, criadoEm: new Date().toISOString() },
+      { id: uLeonor, nome: "Leonor Cardoso", email: "leonor@animakids.pt", dataNascimento: "1998-11-20", emailVerificado: true, criadoEm: new Date().toISOString() },
     ]);
 
     const memberships = [
@@ -99,6 +108,11 @@
     const grupos = [g1, g1, g1, g1, g1, g1, g1, g2, g2, g2, g2, g2, g2, g2, g3, g3, g3, g3, g3, g3];
     const ordemPorGrupo = { [g1]: 1, [g2]: 2, [g3]: 3 };
     const hoje = new Date();
+    const objetivosCoachExemplos = [
+      "Conseguir o mortal à frente sozinho até ao Natal.",
+      "Ganhar mais confiança no mini-trampolim invertido.",
+      "Trabalhar a postura na roda antes de avançar para a rondada.",
+    ];
     const athletes = nomes.map((nome, i) => {
       const idade = 6 + (i % 7);
       const anoNasc = 2027 - idade;
@@ -112,6 +126,9 @@
         contacto: "9" + (10000000 + i * 137).toString().slice(0, 8),
         notasMedicas: i % 6 === 0 ? "Asma ligeira — inalador na mochila." : "",
         ativo: true, foto: null,
+        autorizacaoImagem: i % 4 !== 0,
+        objetivosCoach: i < 3 ? objetivosCoachExemplos[i] : "",
+        objetivosProprios: i === 0 ? "Quero conseguir fazer o mortal à frente sozinha e aprender a rondada!" : "",
         habilidades: HABILIDADES.reduce((acc, h, hi) => { acc[h] = Math.max(1, Math.min(5, base + (hi % 3 === 0 ? 0 : -1))); return acc; }, {}),
         updatedAt: new Date().toISOString(),
       };

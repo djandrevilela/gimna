@@ -1,7 +1,7 @@
 {
-  "name": "animakids-backend",
+  "name": "gimna-backend",
   "version": "1.0.0",
-  "description": "Backend real da AnimaKids — Express + SQLite + JWT + Web Push",
+  "description": "Backend real do Gimna — Express + SQLite + JWT + Web Push",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

@@ -1,9 +1,10 @@
 /* =========================================================
-   AnimaKids — vistas (parte 3: mensagens + área do atleta)
+   Gimna — vistas (parte 3: mensagens + área do atleta)
    ========================================================= */
 (function (global) {
   "use strict";
   const { esc, fmtDateShort, fmtDateTime, todayStr, tipoClass, initials } = U;
+  const FASE_LABEL = { 1: "Iniciado", 2: "Com ajuda", 3: "A progredir", 4: "Quase autónomo", 5: "Autónomo" };
 
   function messageBubble(m) {
     const isManager = m.remetenteRole === "manager";
@@ -147,7 +148,30 @@
       </div>`;
   }
 
+  function sessionRowExpandable(s, atleta) {
+    const planoGeral = s.planoConteudo || "Sem plano definido.";
+    const planoGrupo = atleta && atleta.grupoId && s.planosGrupo && s.planosGrupo[atleta.grupoId] ? s.planosGrupo[atleta.grupoId] : null;
+    const notaPropria = atleta && s.planosAtleta && s.planosAtleta[atleta.id] ? s.planosAtleta[atleta.id] : null;
+    const detailId = "plano-" + s.id;
+    return `
+      <div class="list-row" data-action="toggleDetalhe" data-target="${detailId}" style="cursor:pointer;">
+        <div style="width:56px; flex-shrink:0;">
+          <div style="font-weight:700;">${s.data.slice(8, 10)}</div>
+          <div style="font-size:.7rem; color:var(--ink-soft);">${U.MESES[parseInt(s.data.slice(5, 7), 10) - 1]}</div>
+        </div>
+        <div style="flex:1;"><div class="primary-text">${s.diaSemana}</div><span class="chip ${tipoClass(s.tipo)}">${esc(s.tipo)}</span></div>
+        <span style="color:var(--ink-soft); font-size:.78rem;">Ver plano ▾</span>
+      </div>
+      <div id="${detailId}" style="display:none; padding:0 10px 14px 70px; font-size:.86rem; border-bottom:1px solid var(--line);">
+        <div style="margin-bottom:8px;"><strong>Plano geral:</strong><br><span style="white-space:pre-line;">${esc(planoGeral)}</span></div>
+        ${planoGrupo ? `<div style="margin-bottom:8px;"><strong>Plano do teu grupo:</strong><br><span style="white-space:pre-line;">${esc(planoGrupo)}</span></div>` : ""}
+        ${notaPropria ? `<div><strong>Nota para ti:</strong><br><span style="white-space:pre-line;">${esc(notaPropria)}</span></div>` : ""}
+      </div>`;
+  }
+
   async function meusTreinos() {
+    const atletaId = Auth.activeMembership.atletaId;
+    const atleta = atletaId ? await DB.get("atletas", atletaId) : null;
     const sessoes = U.byTurma(await DB.getAll("sessoes"));
     const today = todayStr();
     const futuras = sessoes.filter((s) => s.tipo && s.data >= today).sort((a, b) => a.data.localeCompare(b.data));
@@ -155,13 +179,14 @@
     return `
       <div class="section-title"><h2>Os Meus Treinos</h2></div>
       <div class="mat-line"></div>
+      <p style="color:var(--ink-soft); font-size:.85rem; margin-bottom:10px;">Toca num treino para ver o plano — o plano geral, o do teu grupo (se houver) e notas só para ti.</p>
       <div class="card">
         <div class="eyebrow">Próximos treinos (${futuras.length})</div>
-        <div style="max-height:50vh; overflow-y:auto;">${futuras.length ? futuras.map(sessionRowReadOnly).join("") : `<p style="color:var(--ink-soft)">Sem treinos agendados.</p>`}</div>
+        <div style="max-height:55vh; overflow-y:auto;">${futuras.length ? futuras.map((s) => sessionRowExpandable(s, atleta)).join("") : `<p style="color:var(--ink-soft)">Sem treinos agendados.</p>`}</div>
       </div>
       <div class="card" style="margin-top:14px;">
         <div class="eyebrow">Últimos treinos</div>
-        ${passadas.length ? passadas.map(sessionRowReadOnly).join("") : `<p style="color:var(--ink-soft)">Ainda sem treinos realizados.</p>`}
+        ${passadas.length ? passadas.map((s) => sessionRowExpandable(s, atleta)).join("") : `<p style="color:var(--ink-soft)">Ainda sem treinos realizados.</p>`}
       </div>
     `;
   }
@@ -185,13 +210,13 @@
         <div class="card"><div class="eyebrow">Grupo de treino</div><p style="margin-top:6px;">${grupo ? `<span class="chip ${U.grupoClass(grupo.ordem)}">${esc(grupo.nome)}</span>` : "Ainda sem grupo atribuído."}</p></div>
       </div>
       <div class="card" style="margin-top:14px;">
-        <p style="color:var(--ink-soft); font-size:.85rem;">Fase 1 = pré-requisitos · Fase 5 = autónomo.</p>
+        <p style="color:var(--ink-soft); font-size:.85rem;">Cada habilidade evolui em 5 passos, do "Iniciado" ao "Autónomo".</p>
         ${habilidades.map((h) => {
           const fase = fases[h] || 1;
           return `
             <div style="margin-bottom:14px;">
               <div style="display:flex; justify-content:space-between; font-size:.86rem; margin-bottom:5px;">
-                <strong>${esc(h)}</strong><span style="color:var(--ink-soft)">Fase ${fase}/5</span>
+                <strong>${esc(h)}</strong><span style="color:var(--ink-soft)">${esc(FASE_LABEL[fase])}</span>
               </div>
               <div class="skill-phase-track">${[1, 2, 3, 4, 5].map((n) => `<div class="seg ${n <= fase ? "on" : ""}"></div>`).join("")}</div>
             </div>`;
@@ -201,14 +226,38 @@
   }
 
   async function objetivos() {
-    const list = U.byTurma(await DB.getAll("mesociclos")).sort((a, b) => a.dataInicio.localeCompare(b.dataInicio));
+    const [list, turma] = await Promise.all([
+      DB.getAll("mesociclos").then((r) => U.byTurma(r).sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))),
+      DB.get("turmas", Auth.activeMembership.turmaId),
+    ]);
+    const atletaId = Auth.activeMembership.atletaId;
+    const atleta = atletaId ? await DB.get("atletas", atletaId) : null;
+    const resumo = (turma && turma.resumoObjetivos) || "O treinador ainda não definiu o resumo do plano geral para esta época.";
+
     return `
       <div class="section-title"><h2>Objetivos da Época</h2></div>
       <div class="mat-line"></div>
       <div class="card">
         <div class="eyebrow">Resumo do plano geral</div>
-        <p style="margin-top:6px;">O objetivo desta época é preparar a turma para a classe de representação/competição, trabalhando de forma progressiva o mortal à frente e atrás no mini-trampolim, a rondada-flic-flac no solo, os saltos com passagem por pino no plinto e, para os atletas mais avançados, o barani. O trabalho está dividido em períodos (mesociclos), cada um com um foco técnico diferente, resumidos abaixo.</p>
+        <p style="margin-top:6px; white-space:pre-line;">${esc(resumo)}</p>
       </div>
+
+      ${atleta && atleta.objetivosCoach ? `
+        <div class="card" style="margin-top:14px;">
+          <div class="eyebrow">O que o treinador definiu para ti</div>
+          <p style="margin-top:6px; white-space:pre-line;">${esc(atleta.objetivosCoach)}</p>
+        </div>` : ""}
+
+      <div class="card" style="margin-top:14px;">
+        <div class="eyebrow">Os teus objetivos para o final do ano</div>
+        <p style="font-size:.82rem; color:var(--ink-soft); margin-top:4px;">Escreve aqui o que queres conseguir até ao final da época — o treinador também vê isto.</p>
+        <form data-form="saveObjetivoProprio" style="margin-top:10px;">
+          <textarea name="objetivosProprios" placeholder="Ex.: Quero conseguir fazer o mortal à frente sozinho!">${esc((atleta && atleta.objetivosProprios) || "")}</textarea>
+          <button type="submit" class="btn btn-primary btn-sm" style="margin-top:8px;">Guardar</button>
+        </form>
+      </div>
+
+      <div class="section-title" style="margin-top:20px;"><h3 style="font-size:1.05rem;">Mesociclos</h3></div>
       ${list.map((m) => `
         <div class="card">
           <h3>${esc(m.nome)}</h3>

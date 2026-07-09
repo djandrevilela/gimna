@@ -1,15 +1,15 @@
 /* =========================================================
-   AnimaKids — camada de dados (IndexedDB)
+   Gimna — camada de dados (IndexedDB)
    Cada registo guarda: id, tenantId, updatedAt, _dirty (por sincronizar)
    Isto é propositadamente parecido com o desenho de tabelas SQL Server
    descrito em docs/schema.sql, para facilitar a futura ligação a uma API real.
    ========================================================= */
 (function (global) {
-  const DB_NAME = "animakids-db";
-  const DB_VERSION = 3;
+  const DB_NAME = "gimna-db";
+  const DB_VERSION = 5;
   const STORES = [
     "tenants", "users", "memberships", "convites", "turmas", "grupos", "atletas",
-    "mesociclos", "sessoes", "presencas", "comentarios", "mensagens", "otpCodes",
+    "mesociclos", "microciclosTipos", "sessoes", "presencas", "comentarios", "mensagens", "avaliacoes", "otpCodes",
     "syncQueue", "preferencias"
   ];
 
@@ -114,7 +114,14 @@
       };
       return new Promise((resolve, reject) => {
         const req = os.put(item);
-        req.onsuccess = () => { global.dispatchEvent(new CustomEvent("ak:dirty")); resolve(item); };
+        req.onsuccess = () => {
+          delete DB._cache.syncQueue; // a escrita acima não passou por DB.put(), por isso invalida-se a cache à mão
+          global.dispatchEvent(new CustomEvent("ak:dirty"));
+          if (global.Auth && Auth.onlineMode && global.Api && Api.isConfigured() && Api.token && navigator.onLine) {
+            DB.trySync().catch(() => {});
+          }
+          resolve(item);
+        };
         req.onerror = () => reject(req.error);
       });
     },
@@ -129,12 +136,32 @@
     // para o endpoint correspondente e só marcado synced=true após 2xx.
     async trySync() {
       if (!navigator.onLine) return { ok: false, reason: "offline" };
+
+      // Caminho real: há backend configurado e sessão online -> empurra a
+      // fila local para o servidor e traz de volta o que houver de novo.
+      if (global.Api && Api.isConfigured() && Api.token) {
+        try {
+          const pushRes = await Api.pushQueue();
+          if (global.Auth && Auth.activeMembership) {
+            await Api.pullTurma(Auth.activeMembership.turmaId);
+          }
+          delete DB._cache; DB._cache = {}; // força releitura após a sincronização
+          global.dispatchEvent(new CustomEvent("ak:synced"));
+          return { ok: true, count: pushRes.count || 0, online: true };
+        } catch (e) {
+          console.warn("Sincronização com o servidor falhou, a usar fila local.", e.message);
+        }
+      }
+
+      // Caminho local (sem backend configurado, ou backend inatingível):
+      // só marca a fila como sincronizada, para a demonstração continuar fluida.
       const all = await DB.getAll("syncQueue");
       const pending = all.filter((i) => !i.synced);
       if (pending.length === 0) return { ok: true, count: 0 };
-      await new Promise((r) => setTimeout(r, 500)); // simula latência de rede
+      await new Promise((r) => setTimeout(r, 500));
       const os = await tx("syncQueue", "readwrite");
       pending.forEach((item) => { item.synced = true; os.put(item); });
+      delete DB._cache.syncQueue;
       global.dispatchEvent(new CustomEvent("ak:synced"));
       return { ok: true, count: pending.length };
     },

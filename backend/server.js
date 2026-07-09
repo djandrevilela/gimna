@@ -19,6 +19,6 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log("AnimaKids backend a correr em http://localhost:" + PORT);
+  console.log("Gimna backend a correr em http://localhost:" + PORT);
   console.log("Testa com: curl http://localhost:" + PORT + "/health");
 });

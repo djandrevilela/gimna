@@ -1,7 +1,7 @@
 {
-  "name": "AnimaKids Treino",
-  "short_name": "AnimaKids",
-  "description": "Gestão de atletas, grupos, calendário e presenças para a classe AnimaKids.",
+  "name": "Gimna — Gestão de Treino",
+  "short_name": "Gimna",
+  "description": "Gestão de atletas, grupos, calendário e presenças de ginástica.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

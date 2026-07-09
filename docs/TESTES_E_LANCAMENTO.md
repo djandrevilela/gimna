@@ -1,4 +1,4 @@
-# AnimaKids — Guia de Testes, Instalação e Lançamento
+# Gimna — Guia de Testes, Instalação e Lançamento
 
 ## 1. Como testar agora (localmente, grátis)
 

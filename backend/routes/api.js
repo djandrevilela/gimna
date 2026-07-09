@@ -20,6 +20,13 @@ router.get("/me", (req, res) => {
   res.json({ user, memberships });
 });
 
+router.put("/me", (req, res) => {
+  const b = req.body;
+  db.prepare("UPDATE users SET nome=?, dataNascimento=?, updatedAt=? WHERE id=?")
+    .run(b.nome || "", b.dataNascimento || null, nowIso(), req.userId);
+  res.json({ ok: true });
+});
+
 router.get("/preferencias/me", (req, res) => {
   const row = db.prepare("SELECT * FROM preferencias WHERE userId = ?").get(req.userId);
   res.json(row ? parseJsonCols(row, ["widgetsDashboard"]) : null);
@@ -42,6 +49,18 @@ router.post("/turmas/first", (req, res) => {
   res.json({ ok: true, tenantId, turmaId });
 });
 
+// Nova turma dentro do MESMO ginásio de uma turma onde já sou gestor
+// (ex.: André já gere a turma AnimaKids e quer adicionar "AnimaKids Iniciação" — nomes de turmas ficam livres, Gimna é só a plataforma).
+router.post("/turmas", requireMembership(["manager"]), (req, res) => {
+  const turmaId = req.body.id || uuid();
+  const b = req.body;
+  db.prepare("INSERT INTO turmas (id, tenantId, nome, descricao, horario, diasSemana, feriados, updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+    .run(turmaId, req.membership.tenantId, b.nome, b.descricao || "", b.horario || "", "[]", "[]", nowIso());
+  db.prepare("INSERT INTO memberships (id,userId,turmaId,tenantId,role,estado,updatedAt) VALUES (?,?,?,?,?,'ativo',?)")
+    .run(uuid(), req.userId, turmaId, req.membership.tenantId, "manager", nowIso());
+  res.json({ ok: true, turmaId });
+});
+
 router.get("/turmas/:id", requireMembership(), (req, res) => {
   const row = db.prepare("SELECT * FROM turmas WHERE id = ?").get(req.params.id);
   res.json(parseJsonCols(row, ["diasSemana", "feriados", "padraoMicrociclo"]));
@@ -49,8 +68,8 @@ router.get("/turmas/:id", requireMembership(), (req, res) => {
 
 router.put("/turmas/:id", requireMembership(["manager"]), (req, res) => {
   const b = req.body;
-  db.prepare("UPDATE turmas SET nome=?, descricao=?, horario=?, epocaInicio=?, epocaFim=?, diasSemana=?, feriados=?, padraoMicrociclo=?, updatedAt=? WHERE id=?")
-    .run(b.nome, b.descricao || "", b.horario || "", b.epocaInicio || null, b.epocaFim || null,
+  db.prepare("UPDATE turmas SET nome=?, descricao=?, horario=?, epocaInicio=?, epocaFim=?, resumoObjetivos=?, diasSemana=?, feriados=?, padraoMicrociclo=?, updatedAt=? WHERE id=?")
+    .run(b.nome, b.descricao || "", b.horario || "", b.epocaInicio || null, b.epocaFim || null, b.resumoObjetivos || "",
       JSON.stringify(b.diasSemana || []), JSON.stringify(b.feriados || []),
       b.padraoMicrociclo ? JSON.stringify(b.padraoMicrociclo) : null, nowIso(), req.params.id);
   res.json({ ok: true });
@@ -58,14 +77,16 @@ router.put("/turmas/:id", requireMembership(["manager"]), (req, res) => {
 
 router.post("/turmas/:id/gerar-sessoes", requireMembership(["manager"]), (req, res) => {
   const turma = parseJsonCols(db.prepare("SELECT * FROM turmas WHERE id = ?").get(req.params.id), ["diasSemana", "feriados", "padraoMicrociclo"]);
-  const mesociclos = db.prepare("SELECT * FROM mesociclos WHERE turmaId = ?").all(req.params.id);
+  const mesociclos = db.prepare("SELECT * FROM mesociclos WHERE turmaId = ?").all(req.params.id).map((m) => parseJsonCols(m, ["planosPorMicrociclo"]));
+  const catalogo = db.prepare("SELECT * FROM microciclos_tipos WHERE turmaId = ? ORDER BY ordem").all(req.params.id);
   const realizadas = new Set(db.prepare("SELECT data FROM sessoes WHERE turmaId=? AND estado='realizada'").all(req.params.id).map((r) => r.data));
 
-  db.prepare("DELETE FROM sessoes WHERE turmaId = ? AND estado != 'realizada'").run(req.params.id);
+  // preserva sessões já realizadas E eventos extra (provas/exibições/treinos extra)
+  db.prepare("DELETE FROM sessoes WHERE turmaId = ? AND estado != 'realizada' AND categoria = 'treino'").run(req.params.id);
 
-  const geradas = Season.generateSessions(turma, mesociclos).filter((s) => !realizadas.has(s.data));
-  const ins = db.prepare("INSERT INTO sessoes (id,tenantId,turmaId,mesocicloId,data,diaSemana,semanaCiclo,tipo,feriado,planoConteudo,planosGrupo,planosAtleta,estado,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-  const tx = db.transaction((rows) => { rows.forEach((s) => ins.run(uuid(), s.tenantId, s.turmaId, s.mesocicloId, s.data, s.diaSemana, s.semanaCiclo, s.tipo, s.feriado, s.planoConteudo, "{}", "{}", s.estado, nowIso())); });
+  const geradas = Season.generateSessions(turma, mesociclos, catalogo).filter((s) => !realizadas.has(s.data));
+  const ins = db.prepare("INSERT INTO sessoes (id,tenantId,turmaId,mesocicloId,data,diaSemana,semanaCiclo,tipo,categoria,feriado,planoConteudo,planosGrupo,planosAtleta,estado,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+  const tx = db.transaction((rows) => { rows.forEach((s) => ins.run(uuid(), s.tenantId, s.turmaId, s.mesocicloId, s.data, s.diaSemana, s.semanaCiclo, s.tipo, s.categoria || "treino", s.feriado, s.planoConteudo, "{}", "{}", s.estado, nowIso())); });
   tx(geradas);
   res.json({ ok: true, count: geradas.length });
 });
@@ -79,13 +100,14 @@ function simpleResource(opts) {
   });
 
   router.post("/" + path, requireMembership(writeRoles), (req, res) => {
-    const id = uuid();
+    const id = req.body.id || uuid(); // aceita o id gerado no dispositivo, para a sincronização offline não duplicar registos
     buildInsert(req, id);
     res.json({ ok: true, id });
   });
 
   router.put("/" + path + "/:id", requireMembership(writeRoles), (req, res) => {
-    buildInsert(req, req.params.id, true);
+    const result = buildInsert(req, req.params.id, true);
+    if (result && result.changes === 0) return res.status(404).json({ error: "Registo não encontrado nesta turma." });
     res.json({ ok: true });
   });
 
@@ -100,10 +122,10 @@ simpleResource({
   buildInsert: (req, id, isUpdate) => {
     const b = req.body;
     if (isUpdate) {
-      db.prepare("UPDATE grupos SET nome=?, ordem=?, descricao=?, updatedAt=? WHERE id=? AND turmaId=?")
+      return db.prepare("UPDATE grupos SET nome=?, ordem=?, descricao=?, updatedAt=? WHERE id=? AND turmaId=?")
         .run(b.nome, b.ordem || 1, b.descricao || "", nowIso(), id, req.membership.turmaId);
     } else {
-      db.prepare("INSERT INTO grupos (id,tenantId,turmaId,nome,ordem,descricao,updatedAt) VALUES (?,?,?,?,?,?,?)")
+      return db.prepare("INSERT INTO grupos (id,tenantId,turmaId,nome,ordem,descricao,updatedAt) VALUES (?,?,?,?,?,?,?)")
         .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.ordem || 1, b.descricao || "", nowIso());
     }
   },
@@ -115,27 +137,52 @@ simpleResource({
     const b = req.body;
     const habilidades = JSON.stringify(b.habilidades || {});
     if (isUpdate) {
-      db.prepare("UPDATE atletas SET nome=?, dataNascimento=?, grupoId=?, encarregado=?, contacto=?, notasMedicas=?, foto=?, ativo=?, habilidades=?, updatedAt=? WHERE id=? AND turmaId=?")
+      return db.prepare("UPDATE atletas SET nome=?, dataNascimento=?, grupoId=?, encarregado=?, contacto=?, notasMedicas=?, foto=?, ativo=?, habilidades=?, autorizacaoImagem=?, objetivosCoach=?, updatedAt=? WHERE id=? AND turmaId=?")
         .run(b.nome, b.dataNascimento || null, b.grupoId || null, b.encarregado || "", b.contacto || "", b.notasMedicas || "",
-          b.foto || null, b.ativo === false ? 0 : 1, habilidades, nowIso(), id, req.membership.turmaId);
+          b.foto || null, b.ativo === false ? 0 : 1, habilidades, b.autorizacaoImagem ? 1 : 0, b.objetivosCoach || "", nowIso(), id, req.membership.turmaId);
     } else {
-      db.prepare("INSERT INTO atletas (id,tenantId,turmaId,grupoId,nome,dataNascimento,encarregado,contacto,notasMedicas,foto,ativo,habilidades,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      return db.prepare("INSERT INTO atletas (id,tenantId,turmaId,grupoId,nome,dataNascimento,encarregado,contacto,notasMedicas,foto,ativo,habilidades,autorizacaoImagem,objetivosCoach,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         .run(id, req.membership.tenantId, req.membership.turmaId, b.grupoId || null, b.nome, b.dataNascimento || null,
-          b.encarregado || "", b.contacto || "", b.notasMedicas || "", b.foto || null, b.ativo === false ? 0 : 1, habilidades, nowIso());
+          b.encarregado || "", b.contacto || "", b.notasMedicas || "", b.foto || null, b.ativo === false ? 0 : 1, habilidades,
+          b.autorizacaoImagem ? 1 : 0, b.objetivosCoach || "", nowIso());
+    }
+  },
+});
+
+// O próprio atleta/encarregado de educação pode escrever os SEUS objetivos
+// (diferente do CRUD acima, que é manager-only) — nunca outros campos.
+router.put("/atletas/me/objetivos", requireMembership(["atleta"]), (req, res) => {
+  if (!req.membership.atletaId) return res.status(400).json({ error: "Esta conta não está associada a um atleta." });
+  db.prepare("UPDATE atletas SET objetivosProprios=?, updatedAt=? WHERE id=?")
+    .run(req.body.objetivosProprios || "", nowIso(), req.membership.atletaId);
+  res.json({ ok: true });
+});
+
+simpleResource({
+  path: "mesociclos", table: "mesociclos", jsonCols: ["planosPorMicrociclo"], writeRoles: ["manager"],
+  buildInsert: (req, id, isUpdate) => {
+    const b = req.body;
+    const planos = JSON.stringify(b.planosPorMicrociclo || {});
+    if (isUpdate) {
+      return db.prepare("UPDATE mesociclos SET nome=?, dataInicio=?, dataFim=?, objetivo=?, planosPorMicrociclo=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.dataInicio, b.dataFim, b.objetivo || "", planos, nowIso(), id, req.membership.turmaId);
+    } else {
+      return db.prepare("INSERT INTO mesociclos (id,tenantId,turmaId,nome,dataInicio,dataFim,objetivo,planosPorMicrociclo,updatedAt) VALUES (?,?,?,?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.dataInicio, b.dataFim, b.objetivo || "", planos, nowIso());
     }
   },
 });
 
 simpleResource({
-  path: "mesociclos", table: "mesociclos", writeRoles: ["manager"],
+  path: "microciclos-tipos", table: "microciclos_tipos", writeRoles: ["manager"],
   buildInsert: (req, id, isUpdate) => {
     const b = req.body;
     if (isUpdate) {
-      db.prepare("UPDATE mesociclos SET nome=?, dataInicio=?, dataFim=?, objetivo=?, updatedAt=? WHERE id=? AND turmaId=?")
-        .run(b.nome, b.dataInicio, b.dataFim, b.objetivo || "", nowIso(), id, req.membership.turmaId);
+      return db.prepare("UPDATE microciclos_tipos SET nome=?, planoGenerico=?, cor=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.planoGenerico || "", b.cor || "c1", b.ordem || 1, nowIso(), id, req.membership.turmaId);
     } else {
-      db.prepare("INSERT INTO mesociclos (id,tenantId,turmaId,nome,dataInicio,dataFim,objetivo,updatedAt) VALUES (?,?,?,?,?,?,?,?)")
-        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.dataInicio, b.dataFim, b.objetivo || "", nowIso());
+      return db.prepare("INSERT INTO microciclos_tipos (id,tenantId,turmaId,nome,planoGenerico,cor,ordem,updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.planoGenerico || "", b.cor || "c1", b.ordem || 1, nowIso());
     }
   },
 });
@@ -145,13 +192,13 @@ simpleResource({
   buildInsert: (req, id, isUpdate) => {
     const b = req.body;
     if (isUpdate) {
-      db.prepare("UPDATE sessoes SET mesocicloId=?, tipo=?, planoConteudo=?, planosGrupo=?, planosAtleta=?, estado=?, updatedAt=? WHERE id=? AND turmaId=?")
-        .run(b.mesocicloId || null, b.tipo || null, b.planoConteudo || "", JSON.stringify(b.planosGrupo || {}),
-          JSON.stringify(b.planosAtleta || {}), b.estado || "planeada", nowIso(), id, req.membership.turmaId);
+      return db.prepare("UPDATE sessoes SET mesocicloId=?, tipo=?, categoria=?, nomeEvento=?, hora=?, planoConteudo=?, planosGrupo=?, planosAtleta=?, estado=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.mesocicloId || null, b.tipo || null, b.categoria || "treino", b.nomeEvento || null, b.hora || null, b.planoConteudo || "",
+          JSON.stringify(b.planosGrupo || {}), JSON.stringify(b.planosAtleta || {}), b.estado || "planeada", nowIso(), id, req.membership.turmaId);
     } else {
-      db.prepare("INSERT INTO sessoes (id,tenantId,turmaId,mesocicloId,data,diaSemana,semanaCiclo,tipo,feriado,planoConteudo,planosGrupo,planosAtleta,estado,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      return db.prepare("INSERT INTO sessoes (id,tenantId,turmaId,mesocicloId,data,diaSemana,semanaCiclo,tipo,categoria,nomeEvento,hora,feriado,planoConteudo,planosGrupo,planosAtleta,estado,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         .run(id, req.membership.tenantId, req.membership.turmaId, b.mesocicloId || null, b.data, b.diaSemana || "", b.semanaCiclo || null,
-          b.tipo || null, b.feriado || null, b.planoConteudo || "", "{}", "{}", b.estado || "planeada", nowIso());
+          b.tipo || null, b.categoria || "treino", b.nomeEvento || null, b.hora || null, b.feriado || null, b.planoConteudo || "", "{}", "{}", b.estado || "planeada", nowIso());
     }
   },
 });
@@ -223,6 +270,22 @@ router.post("/convites", requireMembership(["manager"]), (req, res) => {
   res.json({ ok: true, id, ativadoJa });
 });
 
+router.get("/avaliacoes", requireMembership(), (req, res) => {
+  res.json(db.prepare("SELECT * FROM avaliacoes WHERE turmaId = ?").all(req.membership.turmaId).map((r) => parseJsonCols(r, ["snapshotHabilidades"])));
+});
+router.post("/avaliacoes", requireMembership(["manager", "ajudante"]), (req, res) => {
+  const b = req.body;
+  const id = b.id || uuid();
+  db.prepare("INSERT INTO avaliacoes (id,tenantId,turmaId,atletaId,tipo,mesocicloId,data,observacoesGerais,snapshotHabilidades,autorId,autorNome,criadoEm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(id, req.membership.tenantId, req.membership.turmaId, b.atletaId, b.tipo, b.mesocicloId || null, b.data,
+      b.observacoesGerais || "", JSON.stringify(b.snapshotHabilidades || {}), b.autorId || req.userId, b.autorNome || "", b.criadoEm || nowIso());
+  res.json({ ok: true, id });
+});
+router.delete("/avaliacoes/:id", requireMembership(["manager"]), (req, res) => {
+  db.prepare("DELETE FROM avaliacoes WHERE id = ? AND turmaId = ?").run(req.params.id, req.membership.turmaId);
+  res.json({ ok: true });
+});
+
 router.get("/memberships", requireMembership(["manager"]), (req, res) => {
   const rows = db.prepare("SELECT m.*, u.nome as userNome, u.email as userEmail FROM memberships m JOIN users u ON u.id = m.userId WHERE m.turmaId = ? AND m.estado='ativo'").all(req.membership.turmaId);
   res.json(rows);
@@ -230,6 +293,31 @@ router.get("/memberships", requireMembership(["manager"]), (req, res) => {
 router.delete("/memberships/:id", requireMembership(["manager"]), (req, res) => {
   db.prepare("DELETE FROM memberships WHERE id = ? AND turmaId = ?").run(req.params.id, req.membership.turmaId);
   res.json({ ok: true });
+});
+
+// -----------------------------------------------------------------
+// Exportação completa dos dados de uma turma — usa isto antes de
+// qualquer redeploy/migração de servidor como salvaguarda. Devolve
+// tudo em JSON; para restaurar, seria preciso um pequeno script de
+// importação (não incluído) ou reintroduzir manualmente via API.
+// -----------------------------------------------------------------
+router.get("/turmas/:id/exportar-tudo", requireMembership(["manager"]), (req, res) => {
+  const turmaId = req.params.id;
+  const dump = {
+    exportadoEm: nowIso(),
+    turma: parseJsonCols(db.prepare("SELECT * FROM turmas WHERE id=?").get(turmaId), ["diasSemana", "feriados", "padraoMicrociclo"]),
+    grupos: db.prepare("SELECT * FROM grupos WHERE turmaId=?").all(turmaId),
+    atletas: db.prepare("SELECT * FROM atletas WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["habilidades"])),
+    mesociclos: db.prepare("SELECT * FROM mesociclos WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["planosPorMicrociclo"])),
+    microciclosTipos: db.prepare("SELECT * FROM microciclos_tipos WHERE turmaId=?").all(turmaId),
+    sessoes: db.prepare("SELECT * FROM sessoes WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["planosGrupo", "planosAtleta"])),
+    presencas: db.prepare("SELECT p.* FROM presencas p JOIN sessoes s ON s.id=p.sessaoId WHERE s.turmaId=?").all(turmaId),
+    comentarios: db.prepare("SELECT * FROM comentarios WHERE tenantId=?").all(req.membership.tenantId),
+    mensagens: db.prepare("SELECT * FROM mensagens WHERE turmaId=?").all(turmaId),
+    avaliacoes: db.prepare("SELECT * FROM avaliacoes WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["snapshotHabilidades"])),
+    memberships: db.prepare("SELECT * FROM memberships WHERE turmaId=?").all(turmaId),
+  };
+  res.json(dump);
 });
 
 module.exports = router;

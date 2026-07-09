@@ -77,8 +77,8 @@ module.exports = router;
 //   npm install resend
 //   const { Resend } = require('resend');
 //   const resend = new Resend(process.env.RESEND_API_KEY);
-//   await resend.emails.send({ from: 'AnimaKids <login@oteudominio.com>', to: email,
-//     subject: 'O teu código AnimaKids', text: 'O teu código é ' + codigo });
+//   await resend.emails.send({ from: 'Gimna <login@oteudominio.com>', to: email,
+//     subject: 'O teu código Gimna', text: 'O teu código é ' + codigo });
 // O Resend tem um nível gratuito generoso; alternativas equivalentes:
 // Postmark, Amazon SES. Depois de ligares isto, remove o devCode da resposta.
 // =====================================================================

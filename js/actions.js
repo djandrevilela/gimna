@@ -1,5 +1,5 @@
 /* =========================================================
-   AnimaKids — ações (handlers de botões e formulários)
+   Gimna — ações (handlers de botões e formulários)
    ========================================================= */
 (function (global) {
   "use strict";
@@ -15,6 +15,10 @@
   const Actions = {
     installApp: () => triggerInstall(),
     closeModal: () => closeModal(),
+    toggleDetalhe: (ds) => {
+      const el = document.getElementById(ds.target);
+      if (el) el.style.display = el.style.display === "none" ? "" : "none";
+    },
 
     // ---------------- Atletas ----------------
     openAthlete: (ds) => { location.hash = "#/atletas/" + ds.id; },
@@ -43,6 +47,7 @@
         turmaId: fd.get("turmaId"), grupoId: fd.get("grupoId") || null,
         encarregado: fd.get("encarregado"), contacto: fd.get("contacto"),
         notasMedicas: fd.get("notasMedicas"), ativo: fd.get("ativo") === "on",
+        objetivosCoach: fd.get("objetivosCoach") || "", autorizacaoImagem: fd.get("autorizacaoImagem") === "on",
         habilidades: (existing && existing.habilidades) || Seed.HABILIDADES.reduce((acc, h) => { acc[h] = 1; return acc; }, {}),
       });
       await DB.put("atletas", record);
@@ -111,13 +116,22 @@
       const id = fd.get("id") || undefined;
       const isNew = !id;
       const existing = id ? await DB.get("turmas", id) : null;
+      const localId = id || DB.uuid();
       const record = Object.assign({}, existing, {
-        id, tenantId: ctxTenant(), nome: fd.get("nome"), descricao: fd.get("descricao"),
+        id: localId, tenantId: ctxTenant(), nome: fd.get("nome"), descricao: fd.get("descricao"),
         dias: fd.get("dias"), horario: fd.get("horario"),
       });
-      const saved = await DB.put("turmas", record);
+
+      if (isNew && Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        try {
+          const res = await Api.createTurma({ id: localId, nome: record.nome, descricao: record.descricao, horario: record.horario });
+          record.id = res.turmaId;
+        } catch (e) { toast("Não foi possível criar no servidor (" + e.message + ") — a guardar só localmente."); }
+      }
+
+      const saved = await DB.put("turmas", record, { silent: isNew }); // se for nova e já ficou criada no servidor, não repete via fila
       if (isNew) {
-        await DB.put("memberships", { userId: Auth.current.id, turmaId: saved.id, tenantId: ctxTenant(), role: "manager", estado: "ativo" });
+        await DB.put("memberships", { id: DB.uuid(), userId: Auth.current.id, turmaId: saved.id, tenantId: ctxTenant(), role: "manager", estado: "ativo" }, { silent: true });
         await Auth._loadSession(Auth.current);
         const nova = Auth.memberships.find((m) => m.turmaId === saved.id);
         if (nova) await Auth.setActiveMembership(nova.id);
@@ -126,8 +140,12 @@
     },
 
     // ---------------- Mesociclos / microciclo ----------------
-    newMeso: async () => { if (!requireAdmin()) return; openModal(Views._helpers.mesoFormHtml(null)); },
-    editMeso: async (ds) => { if (!requireAdmin()) return; openModal(Views._helpers.mesoFormHtml(await DB.get("mesociclos", ds.id))); },
+    newMeso: async () => { if (!requireAdmin()) return; openModal(Views._helpers.mesoFormHtml(null, U.byTurma(await DB.getAll("microciclosTipos")))); },
+    editMeso: async (ds) => {
+      if (!requireAdmin()) return;
+      const [meso, catalogo] = await Promise.all([DB.get("mesociclos", ds.id), DB.getAll("microciclosTipos")]);
+      openModal(Views._helpers.mesoFormHtml(meso, U.byTurma(catalogo)));
+    },
     deleteMeso: async (ds) => {
       if (!requireAdmin()) return;
       if (!confirm("Remover este mesociclo?")) return;
@@ -140,12 +158,44 @@
       const id = fd.get("id") || undefined;
       const turmaId = ctxTurma();
       const existing = id ? await DB.get("mesociclos", id) : null;
+      const catalogo = U.byTurma(await DB.getAll("microciclosTipos"));
+      const planosPorMicrociclo = {};
+      catalogo.forEach((c) => {
+        const val = fd.get("plano_" + c.id);
+        if (val) planosPorMicrociclo[c.nome] = val;
+      });
       const record = Object.assign({}, existing, {
         id, tenantId: ctxTenant(), turmaId: (existing && existing.turmaId) || turmaId,
         nome: fd.get("nome"), dataInicio: fd.get("dataInicio"), dataFim: fd.get("dataFim"), objetivo: fd.get("objetivo"),
+        planosPorMicrociclo,
       });
       await DB.put("mesociclos", record);
       closeModal(); toast("Mesociclo guardado."); await renderRoute();
+    },
+
+    // ---------------- Catálogo de microciclos (tipos de treino) ----------------
+    newMicrociclo: () => { if (!requireAdmin()) return; openModal(Views._helpers.microcicloFormHtml(null)); },
+    editMicrociclo: async (ds) => { if (!requireAdmin()) return; openModal(Views._helpers.microcicloFormHtml(await DB.get("microciclosTipos", ds.id))); },
+    deleteMicrociclo: async (ds) => {
+      if (!requireAdmin()) return;
+      if (!confirm("Remover este microciclo? As sessões já geradas com este tipo mantêm o nome, mas deixam de ter plano genérico associado.")) return;
+      await DB.remove("microciclosTipos", ds.id);
+      closeModal(); toast("Microciclo removido."); await renderRoute();
+    },
+    saveMicrocicloTipo: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const id = fd.get("id") || undefined;
+      const existing = id ? await DB.get("microciclosTipos", id) : null;
+      const catalogoAtual = U.byTurma(await DB.getAll("microciclosTipos"));
+      const record = Object.assign({}, existing, {
+        id, tenantId: ctxTenant(), turmaId: ctxTurma(),
+        nome: fd.get("nome"), planoGenerico: fd.get("planoGenerico"),
+        cor: (existing && existing.cor) || Season.corParaNome(fd.get("nome"), catalogoAtual),
+        ordem: (existing && existing.ordem) || catalogoAtual.length + 1,
+      });
+      await DB.put("microciclosTipos", record);
+      closeModal(); toast("Microciclo guardado."); await renderRoute();
     },
     saveMicrociclo: async (form) => {
       if (!requireAdmin()) return;
@@ -175,6 +225,15 @@
         }
       }
       toast(n + " sessão(ões) atualizada(s)."); await renderRoute();
+    },
+
+    saveResumoObjetivos: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const turma = await DB.get("turmas", ctxTurma());
+      turma.resumoObjetivos = fd.get("resumoObjetivos") || "";
+      await DB.put("turmas", turma);
+      toast("Objetivos gerais guardados."); await renderRoute();
     },
 
     // ---------------- Configuração da época (definida pelo Manager) ----------------
@@ -214,15 +273,25 @@
         toast("Define primeiro o início, o fim e os dias de treino da época."); return;
       }
       if (!confirm("Gerar as sessões da época? As sessões planeadas (ainda não realizadas) serão substituídas pelas novas datas/tipos. Sessões já realizadas mantêm-se.")) return;
+
+      if (Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        try {
+          const res = await Api.gerarSessoesEpoca(ctxTurma());
+          await Api.pullTurma(ctxTurma());
+          toast(res.count + " sessões geradas no servidor."); await renderRoute();
+          return;
+        } catch (e) { toast("Falha a gerar no servidor (" + e.message + ") — a gerar só localmente."); }
+      }
+
       const mesociclos = U.byTurma(await DB.getAll("mesociclos"));
       const existentes = U.byTurma(await DB.getAll("sessoes"));
       const realizadasPorData = new Set(existentes.filter((s) => s.estado === "realizada").map((s) => s.data));
-      // remove todas as não-realizadas
-      for (const s of existentes) { if (s.estado !== "realizada") await DB.remove("sessoes", s.id); }
-      const geradas = Season.generateSessions(turma, mesociclos);
+      for (const s of existentes) { if (s.estado !== "realizada" && (s.categoria || "treino") === "treino") await DB.remove("sessoes", s.id); }
+      const catalogo = U.byTurma(await DB.getAll("microciclosTipos"));
+      const geradas = Season.generateSessions(turma, mesociclos, catalogo);
       const novas = geradas.filter((s) => !realizadasPorData.has(s.data));
       await DB.bulkPutSilent("sessoes", novas.map((s) => Object.assign({ id: DB.uuid() }, s)));
-      toast(novas.length + " sessões geradas."); await renderRoute();
+      toast(novas.length + " sessões geradas (localmente)."); await renderRoute();
     },
 
     // ---------------- Calendário / sessão ----------------
@@ -401,6 +470,131 @@
       toast("Acesso removido."); await renderRoute();
     },
 
+    // ---------------- Eventos extra / provas / exibições ----------------
+    newEvento: () => { if (!requireAdmin()) return; openModal(Views._helpers.eventoFormHtml()); },
+    saveEvento: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const id = fd.get("id") || undefined;
+      const existing = id ? await DB.get("sessoes", id) : null;
+      const data = fd.get("data");
+      const dow = new Date(data + "T00:00:00").getDay();
+      const record = Object.assign({}, existing, {
+        id, tenantId: ctxTenant(), turmaId: ctxTurma(),
+        data, diaSemana: Season.DIA_NOME[dow],
+        categoria: fd.get("categoria"), nomeEvento: fd.get("nomeEvento"), hora: fd.get("hora") || "",
+        planoConteudo: fd.get("planoConteudo") || "", tipo: existing ? existing.tipo : null,
+        estado: (existing && existing.estado) || "planeada",
+      });
+      await DB.put("sessoes", record);
+      closeModal(); toast("Evento guardado."); location.hash = "#/calendario"; await renderRoute();
+    },
+    deleteEvento: async (ds) => {
+      if (!requireAdmin()) return;
+      if (!confirm("Remover este evento?")) return;
+      await DB.remove("sessoes", ds.id);
+      toast("Evento removido."); location.hash = "#/calendario"; await renderRoute();
+    },
+
+    saveObjetivoProprio: async (form) => {
+      if (!Auth.isAtleta() || !Auth.activeMembership.atletaId) { toast("Sem permissão."); return; }
+      const fd = new FormData(form);
+      const atleta = await DB.get("atletas", Auth.activeMembership.atletaId);
+      atleta.objetivosProprios = fd.get("objetivosProprios") || "";
+      await DB.put("atletas", atleta);
+      if (Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        Api.updateMeuObjetivo(atleta.objetivosProprios).catch(() => {});
+      }
+      toast("Objetivo guardado."); await renderRoute();
+    },
+
+    saveMeuPerfil: async (form) => {
+      const fd = new FormData(form);
+      const user = await DB.get("users", Auth.current.id);
+      user.nome = fd.get("nome") || user.nome;
+      user.dataNascimento = fd.get("dataNascimento") || null;
+      await DB.put("users", user);
+      Auth.current = user;
+      if (Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        Api.updateMe({ nome: user.nome, dataNascimento: user.dataNascimento }).catch(() => {});
+      }
+      toast("Perfil atualizado."); await U.renderShell();
+    },
+
+    // ---------------- Avaliações ----------------
+    newAvaliacao: async (ds) => {
+      if (!Auth.can("comment")) { toast("Sem permissão."); return; }
+      const [atleta, mesociclos] = await Promise.all([DB.get("atletas", ds.atleta), DB.getAll("mesociclos")]);
+      openModal(Views._helpers.avaliacaoFormHtml(atleta, U.byTurma(mesociclos), ds.meso || null));
+      Views._helpers.afterAvaliacaoForm();
+    },
+    saveAvaliacao: async (form) => {
+      if (!Auth.can("comment")) { toast("Sem permissão."); return; }
+      const fd = new FormData(form);
+      const atleta = await DB.get("atletas", fd.get("atletaId"));
+      const snapshotHabilidades = {};
+      Seed.HABILIDADES.forEach((h, i) => { snapshotHabilidades[h] = parseInt(fd.get("fase_" + i), 10) || 1; });
+      const tipo = fd.get("tipo");
+      await DB.put("avaliacoes", {
+        tenantId: ctxTenant(), turmaId: ctxTurma(), atletaId: atleta.id,
+        tipo, mesocicloId: tipo === "mesociclo" ? fd.get("mesocicloId") : null,
+        data: fd.get("data"), observacoesGerais: fd.get("observacoesGerais") || "",
+        snapshotHabilidades, autorId: Auth.current.id, autorNome: Auth.current.nome,
+        criadoEm: new Date().toISOString(),
+      });
+      closeModal(); toast("Avaliação guardada."); await renderRoute();
+    },
+    deleteAvaliacao: async (ds) => {
+      if (!requireAdmin()) return;
+      if (!confirm("Remover esta avaliação?")) return;
+      await DB.remove("avaliacoes", ds.id);
+      toast("Avaliação removida."); await renderRoute();
+    },
+
+    // ---------------- Importação/exportação Excel de atletas ----------------
+    downloadAthleteTemplate: () => {
+      const headers = ["Nome", "Data de Nascimento (AAAA-MM-DD)", "Grupo", "Encarregado de Educação", "Contacto", "Notas Médicas", "Autorizado Imagem (Sim/Não)"];
+      const exemplo = ["Maria Exemplo", "2018-05-20", "Grupo 1 - Fundação", "Encarregado de Educação de Maria", "912345678", "", "Sim"];
+      const ws = XLSX.utils.aoa_to_sheet([headers, exemplo]);
+      ws["!cols"] = headers.map(() => ({ wch: 22 }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Atletas");
+      XLSX.writeFile(wb, "modelo-atletas.xlsx");
+    },
+    importAthletesFile: async (file) => {
+      if (!requireAdmin()) return;
+      try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        const grupos = U.byTurma(await DB.getAll("grupos"));
+        const grupoPorNome = Object.fromEntries(grupos.map((g) => [g.nome.trim().toLowerCase(), g.id]));
+        let importados = 0, ignorados = 0;
+        for (const row of rows) {
+          const nome = (row["Nome"] || "").toString().trim();
+          if (!nome) { ignorados++; continue; }
+          const grupoNome = (row["Grupo"] || "").toString().trim().toLowerCase();
+          const autorizado = /^s/i.test((row["Autorizado Imagem (Sim/Não)"] || row["Autorizado Imagem"] || "").toString());
+          await DB.put("atletas", {
+            tenantId: ctxTenant(), turmaId: ctxTurma(),
+            nome, dataNascimento: (row["Data de Nascimento (AAAA-MM-DD)"] || row["Data de Nascimento"] || "").toString().trim() || null,
+            grupoId: grupoPorNome[grupoNome] || null,
+            encarregado: (row["Encarregado de Educação"] || "").toString(),
+            contacto: (row["Contacto"] || "").toString(),
+            notasMedicas: (row["Notas Médicas"] || "").toString(),
+            autorizacaoImagem: autorizado, ativo: true, foto: null,
+            habilidades: Seed.HABILIDADES.reduce((acc, h) => { acc[h] = 1; return acc; }, {}),
+          });
+          importados++;
+        }
+        toast(importados + " atleta(s) importado(s)" + (ignorados ? ", " + ignorados + " ignorada(s) sem nome" : "") + ".");
+        await renderRoute();
+      } catch (e) {
+        toast("Não foi possível ler o ficheiro (" + e.message + ").");
+      }
+    },
+
     // ---------------- Definições ----------------
     enableNotifications: async () => {
       if (!("Notification" in window)) { toast("Este navegador não suporta notificações."); return; }
@@ -413,8 +607,8 @@
       if (!("Notification" in window) || Notification.permission !== "granted") { toast("Ativa as notificações primeiro."); return; }
       const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
       const opts = { body: "Notificação de teste — está a funcionar! 🎉", icon: "icons/icon-192.png" };
-      if (reg) reg.showNotification("AnimaKids", opts);
-      else new Notification("AnimaKids", opts);
+      if (reg) reg.showNotification("Gimna", opts);
+      else new Notification("Gimna", opts);
     },
     forceSync: async () => {
       const res = await DB.trySync();
@@ -435,7 +629,7 @@
     },
     resetDemo: async () => {
       if (!confirm("Isto apaga TODOS os dados guardados neste dispositivo e recria os dados de demonstração. Continuar?")) return;
-      indexedDB.deleteDatabase("animakids-db");
+      indexedDB.deleteDatabase("gimna-db");
       localStorage.clear();
       location.hash = "#/dashboard";
       location.reload();
@@ -447,17 +641,28 @@
         <div class="modal-head"><h3>Criar a tua primeira turma</h3><button class="icon-btn" data-action="closeModal">✕</button></div>
         <form data-form="createFirstTurma">
           <div class="field"><label>Nome do ginásio/estúdio</label><input name="tenantNome" required placeholder="Ex.: Ginásio ABC"></div>
-          <div class="field"><label>Nome da turma</label><input name="turmaNome" required placeholder="Ex.: AnimaKids"></div>
+          <div class="field"><label>Nome da turma</label><input name="turmaNome" required placeholder="Ex.: Iniciação"></div>
           <div class="modal-actions"><button type="button" class="btn btn-ghost" data-action="closeModal">Cancelar</button><button type="submit" class="btn btn-primary">Criar</button></div>
         </form>`);
     },
     createFirstTurma: async (form) => {
       const fd = new FormData(form);
-      const tenantId = DB.uuid();
-      await DB.put("tenants", { id: tenantId, nome: fd.get("tenantNome"), plano: "Trial", criadoEm: new Date().toISOString(), limiteAtletas: 30 });
-      const turmaId = DB.uuid();
-      await DB.put("turmas", { id: turmaId, tenantId, nome: fd.get("turmaNome"), descricao: "", dias: "", horario: "" });
-      await DB.put("memberships", { userId: Auth.current.id, turmaId, tenantId, role: "manager", estado: "ativo" });
+      const tenantNome = fd.get("tenantNome"), turmaNome = fd.get("turmaNome");
+      let tenantId, turmaId;
+
+      if (Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        try {
+          const res = await Api.createTurmaPrimeira(tenantNome, turmaNome);
+          tenantId = res.tenantId; turmaId = res.turmaId;
+        } catch (e) {
+          toast("Não foi possível criar no servidor (" + e.message + ") — a guardar só localmente."); 
+        }
+      }
+      if (!turmaId) { tenantId = DB.uuid(); turmaId = DB.uuid(); }
+
+      await DB.put("tenants", { id: tenantId, nome: tenantNome, plano: "Trial", criadoEm: new Date().toISOString(), limiteAtletas: 30 }, { silent: true });
+      await DB.put("turmas", { id: turmaId, tenantId, nome: turmaNome, descricao: "", dias: "", horario: "" }, { silent: true });
+      await DB.put("memberships", { id: DB.uuid(), userId: Auth.current.id, turmaId, tenantId, role: "manager", estado: "ativo" }, { silent: true });
       await Auth._loadSession(Auth.current);
       const nova = Auth.memberships.find((m) => m.turmaId === turmaId);
       if (nova) await Auth.setActiveMembership(nova.id);

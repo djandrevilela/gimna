@@ -159,6 +159,12 @@ input, select, textarea { font-family: var(--font-body); }
 .list-row .secondary-text { font-size: .8rem; color: var(--ink-soft); }
 
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: .74rem; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.chip-c1 { background: var(--primary-tint); color: var(--primary); }
+.chip-c2 { background: var(--accent-tint); color: var(--accent); }
+.chip-c3 { background: var(--info-tint); color: var(--info); }
+.chip-c4 { background: var(--warn-tint); color: var(--warn); }
+.chip-c5 { background: var(--success-tint); color: var(--success); }
+.chip-c6 { background: #E7E4DC; color: #5B564A; }
 .chip-trampolim { background: var(--primary-tint); color: var(--primary); }
 .chip-tumbling { background: var(--accent-tint); color: var(--accent); }
 .chip-solo { background: var(--info-tint); color: var(--info); }
@@ -247,3 +253,9 @@ table.simple tr:last-child td { border-bottom: none; }
 .bar-row .track { flex: 1; height: 10px; border-radius: 999px; background: var(--paper-2); overflow: hidden; }
 .bar-row .track > div { height: 100%; background: var(--primary); }
 .bar-row .val { width: 40px; text-align: right; font-size: .78rem; font-weight: 700; flex-shrink: 0; }
+
+/* Seletor de turma no sidebar escuro — o controlo fica no tom do menu,
+   mas a lista de opções (que o browser desenha com fundo claro) tem de
+   ter texto escuro, senão fica ilegível (branco sobre branco). */
+.select-dark, .field .select-dark { width: 100%; background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.25); }
+.select-dark option { background: #fff; color: #16232A; }

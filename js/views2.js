@@ -1,5 +1,5 @@
 /* =========================================================
-   AnimaKids — vistas (parte 2: calendário, sessão, definições)
+   Gimna — vistas (parte 2: calendário, sessão, definições)
    ========================================================= */
 (function (global) {
   "use strict";
@@ -25,30 +25,33 @@
 
     const meses = [...new Set(sessoes.map((s) => s.data.slice(0, 7)))].sort();
 
+    const CATEGORIA_LABEL = { treino: "", extra: "Treino extra", prova: "Prova", evento: "Exibição / Evento" };
     const rows = list.map((s) => {
       const meso = mesoById[s.mesocicloId];
       const isPast = s.data < today;
+      const categoria = s.categoria || "treino";
       const estadoBadge = s.feriado
         ? `<span class="chip" style="background:var(--paper-2); color:var(--ink-soft);">Feriado — ${esc(s.feriado)}</span>`
         : s.estado === "realizada" || isPast
           ? `<span class="chip" style="background:var(--success-tint); color:var(--success);">Realizada</span>`
           : `<span class="chip" style="background:var(--primary-tint); color:var(--primary);">Planeada</span>`;
       return `
-        <div class="list-row" data-action="${s.tipo ? "openSession" : ""}" data-id="${s.id}" style="${s.tipo ? "" : "cursor:default;"}">
+        <div class="list-row" data-action="${s.tipo || categoria !== "treino" ? "openSession" : ""}" data-id="${s.id}" style="${s.tipo || categoria !== "treino" ? "" : "cursor:default;"}">
           <div style="width:64px; flex-shrink:0;">
             <div style="font-weight:700; font-size:.9rem;">${s.data.slice(8, 10)}</div>
             <div style="font-size:.72rem; color:var(--ink-soft);">${U.MESES[parseInt(s.data.slice(5, 7), 10) - 1]}</div>
           </div>
           <div style="flex:1; min-width:0;">
-            <div class="primary-text">${s.diaSemana}${meso ? ` · ${esc(meso.nome)}` : ""}</div>
+            <div class="primary-text">${categoria !== "treino" ? "🏅 " + esc(s.nomeEvento || CATEGORIA_LABEL[categoria]) : (s.diaSemana + (meso ? ` · ${esc(meso.nome)}` : ""))}</div>
             ${s.tipo ? `<span class="chip ${tipoClass(s.tipo)}">${esc(s.tipo)}</span>` : ""}
+            ${categoria !== "treino" ? `<span class="chip" style="background:var(--paper-2); color:var(--ink-soft);">${CATEGORIA_LABEL[categoria]}${s.hora ? " · " + esc(s.hora) : ""}</span>` : ""}
           </div>
           ${estadoBadge}
         </div>`;
     }).join("");
 
     return `
-      <div class="section-title"><h2>Calendário da Época</h2></div>
+      <div class="section-title"><h2>Calendário da Época</h2>${Auth.isAdmin() ? `<button class="btn btn-accent btn-sm" data-action="newEvento">+ Novo evento / treino extra</button>` : ""}</div>
       <div class="mat-line"></div>
       <div class="field-row" style="max-width:520px; margin-bottom:8px;">
         <div class="field"><label>Mesociclo</label>
@@ -60,6 +63,26 @@
       </div>
       <div class="card" style="max-height:70vh; overflow-y:auto;">${rows || `<div class="empty-state">Sem sessões para este filtro.</div>`}</div>
     `;
+  }
+  function eventoFormHtml() {
+    return `
+      <div class="modal-head"><h3>Novo evento / treino extra</h3><button class="icon-btn" data-action="closeModal">✕</button></div>
+      <form data-form="saveEvento">
+        <div class="field"><label>Tipo</label>
+          <select name="categoria">
+            <option value="extra">Treino extra</option>
+            <option value="prova">Prova</option>
+            <option value="evento">Exibição / Evento</option>
+          </select>
+        </div>
+        <div class="field"><label>Nome</label><input name="nomeEvento" required placeholder="Ex.: Torneio Regional"></div>
+        <div class="field-row">
+          <div class="field"><label>Data</label><input type="date" name="data" required></div>
+          <div class="field"><label>Hora (opcional)</label><input type="time" name="hora"></div>
+        </div>
+        <div class="field"><label>Notas / plano</label><textarea name="planoConteudo" placeholder="Detalhes, local, o que levar…"></textarea></div>
+        <div class="modal-actions"><button type="button" class="btn btn-ghost" data-action="closeModal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar</button></div>
+      </form>`;
   }
   function fmtMonthLabel(m) { const parts = m.split("-"); return `${U.MESES_EXT[parseInt(parts[1], 10) - 1]} ${parts[0]}`; }
   function afterCalendario() {
@@ -89,6 +112,8 @@
     const [meso, atletas, grupos, presencas, comentarios] = await Promise.all([
       DB.get("mesociclos", s.mesocicloId), DB.getAll("atletas"), DB.getAll("grupos"), DB.getAll("presencas"), DB.getAll("comentarios"),
     ]);
+    const catalogo = U.byTurma(await DB.getAll("microciclosTipos"));
+    const catalogoNomes = catalogo.length ? catalogo.map((c) => c.nome) : Season.defaultCatalogo().map((c) => c.nome);
     const canEdit = Auth.isAdmin();
     const canMark = Auth.can("markAttendance");
 
@@ -99,6 +124,42 @@
           <div style="font-size:2rem;">🎉</div>
           <h2>${fmtDateShort(s.data)} — ${esc(s.feriado)}</h2>
           <p style="color:var(--ink-soft)">Sem treino.</p>
+        </div>`;
+    }
+
+    if (s.categoria && s.categoria !== "treino") {
+      const canEditEvento = Auth.isAdmin();
+      const CATEGORIA_LABEL = { extra: "Treino extra", prova: "Prova", evento: "Exibição / Evento" };
+      return `
+        <a href="#/calendario" style="font-size:.85rem; color:var(--ink-soft); text-decoration:none;">← Calendário</a>
+        <div class="section-title" style="margin-top:10px;">
+          <h2>🏅 ${esc(s.nomeEvento || CATEGORIA_LABEL[s.categoria])}</h2>
+        </div>
+        <div class="mat-line"></div>
+        <div class="card">
+          ${canEditEvento ? `
+            <form data-form="saveEvento">
+              <input type="hidden" name="id" value="${s.id}">
+              <div class="field"><label>Tipo</label>
+                <select name="categoria">
+                  ${Object.entries(CATEGORIA_LABEL).map(([k, v]) => `<option value="${k}" ${k === s.categoria ? "selected" : ""}>${v}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field"><label>Nome</label><input name="nomeEvento" required value="${esc(s.nomeEvento || "")}"></div>
+              <div class="field-row">
+                <div class="field"><label>Data</label><input type="date" name="data" required value="${s.data}"></div>
+                <div class="field"><label>Hora (opcional)</label><input type="time" name="hora" value="${esc(s.hora || "")}"></div>
+              </div>
+              <div class="field"><label>Notas / plano</label><textarea name="planoConteudo">${esc(s.planoConteudo || "")}</textarea></div>
+              <div style="display:flex; gap:8px;">
+                <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                <button type="button" class="btn btn-danger btn-sm" data-action="deleteEvento" data-id="${s.id}">Remover</button>
+              </div>
+            </form>
+          ` : `
+            <p><strong>${fmtDateShort(s.data)}</strong>${s.hora ? " · " + esc(s.hora) : ""}</p>
+            <p style="margin-top:8px; white-space:pre-line;">${esc(s.planoConteudo || "Sem notas.")}</p>
+          `}
         </div>`;
     }
 
@@ -146,7 +207,7 @@
           <div class="eyebrow">Tipo de treino</div>
           ${canEdit ? `
             <select id="sess-tipo-select" style="margin:8px 0 14px; max-width:220px;">
-              ${["Trampolim", "Tumbling", "Solo", "Acrobática"].map((t) => `<option ${t === s.tipo ? "selected" : ""}>${t}</option>`).join("")}
+              ${catalogoNomes.map((t) => `<option ${t === s.tipo ? "selected" : ""}>${esc(t)}</option>`).join("")}
             </select>` : `<p><span class="chip ${tipoClass(s.tipo)}">${esc(s.tipo)}</span></p>`}
           <div class="eyebrow">Conteúdo do plano</div>
           ${canEdit ? `
@@ -289,8 +350,26 @@
       ${membrosHtml}
 
       <div class="card">
+        <div class="eyebrow">Ligação ao servidor</div>
+        <p style="margin-top:6px;">
+          ${(global.Api && Api.isConfigured() && Api.token)
+            ? `<strong style="color:var(--success);">Ligado</strong> — os teus dados sincronizam com o servidor em ${esc(global.API_BASE_URL)}.`
+            : (global.Api && Api.isConfigured())
+              ? `<strong style="color:var(--warn);">Backend configurado, mas ainda sem sessão online</strong> — volta a entrar para ligar.`
+              : `<strong style="color:var(--ink-soft);">Modo local</strong> — sem backend configurado (js/config.js). Os dados ficam só neste dispositivo.`}
+        </p>
+      </div>
+
+      <div class="card">
         <div class="eyebrow">A tua conta</div>
         <p style="margin-top:6px;"><strong>${esc(Auth.current.nome)}</strong><br>${esc(Auth.current.email)}</p>
+        <form data-form="saveMeuPerfil" style="margin-top:10px;">
+          <div class="field-row">
+            <div class="field"><label>Nome</label><input name="nome" value="${esc(Auth.current.nome || "")}" required></div>
+            <div class="field"><label>Data de nascimento</label><input type="date" name="dataNascimento" value="${Auth.current.dataNascimento || ""}"></div>
+          </div>
+          <button type="submit" class="btn btn-ghost btn-sm">Guardar</button>
+        </form>
         <div class="perm-note">O acesso à app é feito só por email + código — não há palavras-passe para memorizar nem para fugirem de um dispositivo partilhado.</div>
       </div>
 
@@ -396,7 +475,7 @@
         </div>
         <div class="card">
           <div class="eyebrow">Sessões realizadas por tipo</div>
-          ${Object.keys(tipoDist).length ? ["Trampolim", "Tumbling", "Solo", "Acrobática"].filter((t) => tipoDist[t]).map((t) => `
+          ${Object.keys(tipoDist).length ? Object.keys(tipoDist).sort((a, b) => tipoDist[b] - tipoDist[a]).map((t) => `
             <div class="bar-row">
               <div class="label"><span class="chip ${tipoClass(t)}">${t}</span></div>
               <div class="track"><div style="width:${Math.round((tipoDist[t] / totalTipoDist) * 100)}%;"></div></div>
@@ -470,6 +549,7 @@
   global.Views._helpers = global.Views._helpers || {};
   global.Views._helpers.inviteFormHtml = inviteFormHtml;
   global.Views._helpers.broadcastFormHtml = broadcastFormHtml;
+  global.Views._helpers.eventoFormHtml = eventoFormHtml;
   global.afterRenderHooks = global.afterRenderHooks || [];
   global.afterRenderHooks.push(afterCalendario, afterSessaoDetail);
 })(window);

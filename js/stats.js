@@ -1,5 +1,5 @@
 /* =========================================================
-   AnimaKids — estatísticas (cálculos partilhados)
+   Gimna — estatísticas (cálculos partilhados)
    ========================================================= */
 (function (global) {
   "use strict";
@@ -7,12 +7,14 @@
   function pct(n, d) { return d ? Math.round((n / d) * 100) : null; }
 
   async function loadAll() {
-    const [atletas, grupos, turmas, sessoes, presencas, comentarios] = await Promise.all([
+    const [atletas, grupos, turmas, sessoes, presencas, comentarios, mesociclos, avaliacoes] = await Promise.all([
       DB.getAll("atletas"), DB.getAll("grupos"), DB.getAll("turmas"), DB.getAll("sessoes"), DB.getAll("presencas"), DB.getAll("comentarios"),
+      DB.getAll("mesociclos"), DB.getAll("avaliacoes"),
     ]);
     return {
       atletas: U.byTurma(atletas), grupos: U.byTurma(grupos), turmas: U.byTenant(turmas),
       sessoes: U.byTurma(sessoes), presencas: U.byTenant(presencas), comentarios: U.byTenant(comentarios),
+      mesociclos: U.byTurma(mesociclos), avaliacoes: U.byTenant(avaliacoes),
     };
   }
 
