@@ -112,7 +112,9 @@
     const msgs = U.byTurma(await DB.getAll("mensagens"));
     const avisos = msgs.filter((m) => m.tipo === "broadcast").sort((a, b) => b.criadoEm.localeCompare(a.criadoEm)).slice(0, 3);
     const presencas = atletaId ? (await DB.getAll("presencas")).filter((p) => p.atletaId === atletaId) : [];
-    const total = presencas.length, presentes = presencas.filter((p) => p.estado === "presente").length;
+    const estadosPresenca = await U.getEstadosPresenca();
+    const presencaValores = new Set(estadosPresenca.filter((e) => e.contaComoPresenca).map((e) => e.valor));
+    const total = presencas.length, presentes = presencas.filter((p) => presencaValores.has(p.estado)).length;
     const pct = total ? Math.round((presentes / total) * 100) : null;
 
     return `
@@ -197,9 +199,11 @@
     if (!atleta) return `<div class="empty-state">A tua conta ainda não está associada a uma ficha de atleta.</div>`;
     const grupo = atleta.grupoId ? await DB.get("grupos", atleta.grupoId) : null;
     const presencas = (await DB.getAll("presencas")).filter((p) => p.atletaId === atletaId);
-    const total = presencas.length, presentes = presencas.filter((p) => p.estado === "presente").length;
+    const estadosPresenca = await U.getEstadosPresenca();
+    const presencaValores = new Set(estadosPresenca.filter((e) => e.contaComoPresenca).map((e) => e.valor));
+    const total = presencas.length, presentes = presencas.filter((p) => presencaValores.has(p.estado)).length;
     const pct = total ? Math.round((presentes / total) * 100) : null;
-    const habilidades = Seed.HABILIDADES;
+    const habilidades = await U.getHabilidadesNomes();
     const fases = atleta.habilidades || {};
 
     return `

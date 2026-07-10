@@ -109,6 +109,7 @@
     { route: "estatisticas", label: "Estatísticas", ico: "📊" },
     { route: "mesociclos", label: "Época e Mesociclos", ico: "📈" },
     { route: "turmas", label: "Turmas", ico: "🏫" },
+    { route: "personalizacao", label: "Personalização", ico: "🎨" },
     { route: "mensagens", label: "Mensagens", ico: "💬" },
     { route: "definicoes", label: "Definições", ico: "⚙️" },
   ];
@@ -148,7 +149,7 @@
     return { route: route || "dashboard", id: id || null };
   }
 
-  const ROTAS_STAFF = ["dashboard", "atletas", "grupos", "turmas", "mesociclos", "calendario", "estatisticas", "sessao", "definicoes", "mensagens", "checkin"];
+  const ROTAS_STAFF = ["dashboard", "atletas", "grupos", "turmas", "mesociclos", "calendario", "estatisticas", "sessao", "definicoes", "mensagens", "checkin", "personalizacao"];
   const ROTAS_ATLETA = ["dashboard", "meus-treinos", "minha-evolucao", "objetivos", "mensagens", "definicoes"];
 
   async function renderRoute() {
@@ -190,6 +191,7 @@
         case "sessao": html = await Views.sessaoDetail(id); break;
         case "definicoes": html = await Views.definicoes(); break;
         case "checkin": html = await Views.checkin(); break;
+        case "personalizacao": html = Auth.isAdmin() ? await Views.personalizacao() : `<div class="empty-state"><div class="ico">🔒</div><p>Só o gestor acede à personalização.</p></div>`; break;
         case "mensagens": html = await Views.mensagens(id); break;
         case "meus-treinos": html = await Views.meusTreinos(); break;
         case "minha-evolucao": html = await Views.minhaEvolucao(); break;
@@ -212,7 +214,7 @@
     const titles = {
       dashboard: "Início", atletas: "Atletas", grupos: "Grupos de Treino", turmas: "Turmas", mesociclos: "Mesociclos",
       calendario: "Calendário da Época", estatisticas: "Estatísticas", sessao: "Sessão de Treino", definicoes: "Definições",
-      mensagens: "Mensagens", "meus-treinos": "Os Meus Treinos", "minha-evolucao": "A Minha Evolução", objetivos: "Objetivos da Época", checkin: "Check-in",
+      mensagens: "Mensagens", "meus-treinos": "Os Meus Treinos", "minha-evolucao": "A Minha Evolução", objetivos: "Objetivos da Época", checkin: "Check-in", personalizacao: "Personalização",
     };
     const h1 = document.getElementById("topbar-title");
     if (h1) h1.textContent = titles[route] || "Gimna";
@@ -228,12 +230,39 @@
   // ---------------------------------------------------------------
   // Shell (layout depois do login)
   // ---------------------------------------------------------------
+  function hexToRgb(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "");
+    return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+  }
+  function tintOf(hex, amount) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return null;
+    const mix = (c) => Math.round(c + (255 - c) * amount);
+    return `rgb(${mix(rgb.r)}, ${mix(rgb.g)}, ${mix(rgb.b)})`;
+  }
+  function applyBranding(turma) {
+    const root = document.documentElement.style;
+    if (turma && turma.corPrimaria) {
+      root.setProperty("--primary", turma.corPrimaria);
+      root.setProperty("--primary-tint", tintOf(turma.corPrimaria, 0.88) || "");
+    } else {
+      root.removeProperty("--primary"); root.removeProperty("--primary-tint");
+    }
+    if (turma && turma.corAccent) {
+      root.setProperty("--accent", turma.corAccent);
+      root.setProperty("--accent-tint", tintOf(turma.corAccent, 0.88) || "");
+    } else {
+      root.removeProperty("--accent"); root.removeProperty("--accent-tint");
+    }
+  }
+
   async function renderShell() {
     const app = document.getElementById("app");
     const nav = navFor();
     const bottom = bottomNavFor();
     const tenant = Auth.activeMembership ? await DB.get("tenants", Auth.activeMembership.tenantId) : null;
     const turma = Auth.activeMembership ? await DB.get("turmas", Auth.activeMembership.turmaId) : null;
+    applyBranding(turma);
     const turmasAll = await DB.getAll("turmas");
     const turmaNomeById = Object.fromEntries(turmasAll.map((t) => [t.id, t.nome]));
 
@@ -331,6 +360,7 @@
   let pendingOtpEmail = null;
 
   async function renderLogin() {
+    applyBranding(null);
     const users = await DB.getAll("users");
     const memberships = await DB.getAll("memberships");
     const turmas = await DB.getAll("turmas");
@@ -493,6 +523,52 @@
     return records.filter((r) => r.tenantId === tid);
   }
 
+  // Torna arrastável uma lista de elementos (cada um com um atributo
+  // data-sortable-id). Quando a ordem muda, chama onReorder(novaOrdemIds).
+  function makeSortable(container, onReorder) {
+    if (!container) return;
+    let draggedEl = null;
+    const items = () => Array.from(container.querySelectorAll("[data-sortable-id]"));
+    items().forEach((el) => {
+      el.setAttribute("draggable", "true");
+      el.addEventListener("dragstart", () => { draggedEl = el; el.classList.add("dragging"); });
+      el.addEventListener("dragend", () => { el.classList.remove("dragging"); draggedEl = null; });
+      el.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (!draggedEl || draggedEl === el) return;
+        const rect = el.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        el.parentNode.insertBefore(draggedEl, before ? el : el.nextSibling);
+      });
+      el.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const novaOrdem = items().map((x) => x.dataset.sortableId);
+        onReorder(novaOrdem);
+      });
+    });
+  }
+
+  async function getHabilidadesNomes() {
+    const cat = byTurma(await DB.getAll("habilidadesTipos"));
+    return cat.length ? cat.sort((a, b) => (a.ordem || 0) - (b.ordem || 0)).map((c) => c.nome) : Seed.HABILIDADES;
+  }
+  async function getEstadosPresenca() {
+    const cat = byTurma(await DB.getAll("estadosPresenca"));
+    if (cat.length) return cat.sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+    return [
+      { valor: "presente", nome: "Presente", cor: "c5", contaComoPresenca: true },
+      { valor: "falta", nome: "Falta", cor: "c4", contaComoPresenca: false },
+      { valor: "falta_justificada", nome: "Falta Justificada", cor: "c3", contaComoPresenca: false },
+      { valor: "doenca", nome: "Doença", cor: "c2", contaComoPresenca: false },
+    ];
+  }
+  async function getCriteriosAvaliacao() {
+    return byTurma(await DB.getAll("criteriosAvaliacao")).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  }
+  async function getCamposPersonalizados() {
+    return byTurma(await DB.getAll("camposPersonalizados")).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  }
+
   // Expor utilitários para os outros ficheiros (views.js, actions.js)
-  global.U = { esc, calcAge, fmtDateShort, fmtDateTime, todayStr, tipoClass, grupoClass, initials, avatarHtml, resizeImageFile, toast, openModal, closeModal, triggerInstall, renderRoute, renderShell, renderLogin, MESES, MESES_EXT, byTurma, byTenant };
+  global.U = { esc, calcAge, fmtDateShort, fmtDateTime, todayStr, tipoClass, grupoClass, initials, avatarHtml, resizeImageFile, toast, openModal, closeModal, triggerInstall, renderRoute, renderShell, renderLogin, MESES, MESES_EXT, byTurma, byTenant, makeSortable, getHabilidadesNomes, getEstadosPresenca, getCriteriosAvaliacao, getCamposPersonalizados };
 })(window);

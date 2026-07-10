@@ -259,3 +259,8 @@ table.simple tr:last-child td { border-bottom: none; }
    ter texto escuro, senão fica ilegível (branco sobre branco). */
 .select-dark, .field .select-dark { width: 100%; background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.25); }
 .select-dark option { background: #fff; color: #16232A; }
+
+/* Itens arrastáveis (reordenar grupos, microciclos, catálogos, widgets) */
+[data-sortable-id] { cursor: grab; }
+[data-sortable-id].dragging { opacity: .4; }
+[data-sortable-id] .drag-handle { cursor: grab; color: var(--ink-soft); margin-right: 8px; user-select: none; }

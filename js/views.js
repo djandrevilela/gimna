@@ -40,7 +40,7 @@
     const today = todayStr();
     const futuras = data.sessoes.filter((s) => s.data >= today && s.tipo);
     const realizadas = data.sessoes.filter((s) => s.estado === "realizada" || (s.data < today && s.tipo));
-    const att = Stats.attendanceBreakdown(data.presencas);
+    const att = Stats.attendanceBreakdown(data.presencas, data.estadosPresenca);
     return `
       <div class="grid cols-4">
         <div class="card stat-card"><div class="v">${ativos.length}</div><div class="l">Atletas ativos</div></div>
@@ -109,7 +109,7 @@
     </div>`;
   }
   function renderWidgetProgressoGrupos(data) {
-    const habs = Seed.HABILIDADES;
+    const habs = data.habilidadesNomes;
     const rows = Stats.groupSkillAverages(data.atletas, data.grupos, habs);
     return `<div class="card">
       <div class="eyebrow">Progressão média por grupo</div>
@@ -221,7 +221,7 @@
     const atletas = U.byTurma(atletasRaw);
     const grupoById = Object.fromEntries(U.byTurma(gruposRaw).map((g) => [g.id, g]));
     const turmaById = Object.fromEntries(turmas.map((t) => [t.id, t]));
-    const canEdit = Auth.isAdmin();
+    const canEdit = Auth.can("editarAtletas");
 
     const rows = atletas.sort((a, b) => a.nome.localeCompare(b.nome)).map((a) => {
       const g = grupoById[a.grupoId];
@@ -270,8 +270,10 @@
     }
   }
 
-  function athleteFormHtml(atleta, turmas, grupos) {
+  function athleteFormHtml(atleta, turmas, grupos, campos) {
     const a = atleta || {};
+    campos = campos || [];
+    const customVals = a.camposCustom || {};
     return `
       <div class="modal-head"><h3>${atleta ? "Editar atleta" : "Novo atleta"}</h3><button class="icon-btn" data-action="closeModal">✕</button></div>
       <form data-form="saveAthlete">
@@ -300,6 +302,11 @@
         </div>
         <div class="field"><label>Notas médicas / alergias</label><textarea name="notasMedicas">${esc(a.notasMedicas || "")}</textarea></div>
         <div class="field"><label>Objetivos definidos pelo treinador</label><textarea name="objetivosCoach" placeholder="Ex.: Conseguir o mortal à frente sozinho até ao Natal.">${esc(a.objetivosCoach || "")}</textarea></div>
+        ${campos.length ? `<div class="mat-line"></div><div class="eyebrow">Campos personalizados</div>` + campos.map((c) => {
+          if (c.tipo === "checkbox") return `<div class="field"><label><input type="checkbox" name="campo_${c.id}" ${customVals[c.id] ? "checked" : ""} style="width:auto; margin-right:6px;">${esc(c.nome)}</label></div>`;
+          if (c.tipo === "data") return `<div class="field"><label>${esc(c.nome)}</label><input type="date" name="campo_${c.id}" value="${esc(customVals[c.id] || "")}"></div>`;
+          return `<div class="field"><label>${esc(c.nome)}</label><input name="campo_${c.id}" value="${esc(customVals[c.id] || "")}"></div>`;
+        }).join("") : ""}
         <div class="field"><label><input type="checkbox" name="ativo" ${a.ativo === false ? "" : "checked"} style="width:auto; margin-right:6px;">Atleta ativo</label></div>
         <div class="field"><label><input type="checkbox" name="autorizacaoImagem" ${a.autorizacaoImagem === true ? "checked" : ""} style="width:auto; margin-right:6px;">Autorizado a aparecer em fotos/vídeos para redes sociais</label></div>
         <div class="modal-actions">
@@ -330,10 +337,13 @@
       DB.get("atletas", id), DB.getAll("grupos"), DB.getAll("turmas"), DB.getAll("sessoes"), DB.getAll("presencas"), DB.getAll("comentarios"),
       DB.getAll("mesociclos"), DB.getAll("avaliacoes"),
     ]);
+    const [habilidadesNomes, estadosPresenca, criterios, camposPersonalizados] = await Promise.all([
+      U.getHabilidadesNomes(), U.getEstadosPresenca(), U.getCriteriosAvaliacao(), U.getCamposPersonalizados(),
+    ]);
     if (!atleta) return `<div class="empty-state">Atleta não encontrado.</div>`;
     const grupo = grupos.find((g) => g.id === atleta.grupoId);
     const turma = turmas.find((t) => t.id === atleta.turmaId);
-    const canEdit = Auth.isAdmin();
+    const canEdit = Auth.can("editarAtletas");
     const myPresencas = presencas.filter((p) => p.atletaId === id);
     const sessoesById = Object.fromEntries(sessoes.map((s) => [s.id, s]));
     const total = myPresencas.length;
@@ -346,7 +356,7 @@
     const mesociclosAvaliadosIds = new Set(minhasAvaliacoes.filter((av) => av.tipo === "mesociclo").map((av) => av.mesocicloId));
     const pendentes = turmaMesociclos.filter((m) => m.dataFim < today && !mesociclosAvaliadosIds.has(m.id));
 
-    const habilidades = Seed.HABILIDADES;
+    const habilidades = habilidadesNomes;
     const fases = atleta.habilidades || {};
     const activeTab = (global.__tabState && global.__tabState.athlete) || "info";
 
@@ -387,6 +397,17 @@
             <p style="margin-top:6px;">${atleta.autorizacaoImagem ? "✅ Autorizado a aparecer em fotos/vídeos para redes sociais" : "🚫 Sem autorização — não publicar fotos/vídeos deste atleta"}</p>
           </div>
         </div>
+        ${camposPersonalizados.length ? `
+          <div class="card" style="margin-top:14px;">
+            <div class="eyebrow">Campos personalizados</div>
+            <div class="grid cols-2" style="margin-top:6px;">
+              ${camposPersonalizados.map((c) => {
+                const val = (atleta.camposCustom || {})[c.id];
+                const display = c.tipo === "checkbox" ? (val ? "Sim" : "Não") : c.tipo === "data" && val ? fmtDateShort(val) : (val || "—");
+                return `<div><span class="secondary-text">${esc(c.nome)}</span><div>${esc(String(display))}</div></div>`;
+              }).join("")}
+            </div>
+          </div>` : ""}
         ${atleta.objetivosCoach || atleta.objetivosProprios ? `
           <div class="grid cols-2" style="margin-top:14px;">
             ${atleta.objetivosCoach ? `<div class="card"><div class="eyebrow">Objetivos definidos pelo treinador</div><p style="margin-top:6px; white-space:pre-line;">${esc(atleta.objetivosCoach)}</p></div>` : ""}
@@ -436,7 +457,7 @@
             <tbody>
               ${myPresencas.sort((a, b) => (sessoesById[b.sessaoId]?.data || "").localeCompare(sessoesById[a.sessaoId]?.data || "")).map((p) => {
                 const s = sessoesById[p.sessaoId];
-                return `<tr><td>${s ? fmtDateShort(s.data) : "—"}</td><td>${s ? `<span class="chip ${tipoClass(s.tipo)}">${esc(s.tipo)}</span>` : "—"}</td><td>${attLabel(p.estado)}</td></tr>`;
+                return `<tr><td>${s ? fmtDateShort(s.data) : "—"}</td><td>${s ? `<span class="chip ${tipoClass(s.tipo)}">${esc(s.tipo)}</span>` : "—"}</td><td>${attLabel(p.estado, estadosPresenca)}</td></tr>`;
               }).join("") || `<tr><td colspan="3" style="color:var(--ink-soft)">Sem registos ainda.</td></tr>`}
             </tbody>
           </table>
@@ -444,7 +465,7 @@
       </div>
 
       <div data-tab-panel="avaliacoes" style="${activeTab === "avaliacoes" ? "" : "display:none"}">
-        ${avaliacoesBoxHtml(atleta, turmaMesociclos, minhasAvaliacoes, pendentes, Auth.isAdmin())}
+        ${avaliacoesBoxHtml(atleta, turmaMesociclos, minhasAvaliacoes, pendentes, Auth.isAdmin(), habilidadesNomes, criterios)}
       </div>
 
       <div data-tab-panel="comentarios" style="${activeTab === "comentarios" ? "" : "display:none"}">
@@ -453,8 +474,9 @@
     `;
   }
 
-  function avaliacoesBoxHtml(atleta, mesociclos, avaliacoes, pendentes, canDelete) {
-    const habilidades = Seed.HABILIDADES;
+  function avaliacoesBoxHtml(atleta, mesociclos, avaliacoes, pendentes, canDelete, habilidadesNomes, criterios) {
+    const habilidades = habilidadesNomes || Seed.HABILIDADES;
+    criterios = criterios || [];
     const canCreate = Auth.can("comment");
     return `
       <p style="color:var(--ink-soft); font-size:.85rem; margin-bottom:12px;">As avaliações não são testes — são só um registo do estado atual do atleta, feito ao fim de cada mesociclo (ou a qualquer momento).</p>
@@ -489,14 +511,24 @@
             <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;">
               ${habilidades.map((h) => `<span class="chip" style="background:var(--paper-2); color:var(--ink-soft); font-size:.72rem;">${esc(h.split(" (")[0])}: ${av.snapshotHabilidades[h] || "—"}/5</span>`).join("")}
             </div>` : ""}
+          ${av.snapshotCriterios && criterios.length ? `
+            <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
+              ${criterios.map((c) => av.snapshotCriterios[c.nome] ? `<span class="chip" style="background:var(--paper-2); color:var(--ink-soft); font-size:.72rem;">${esc(c.nome)}: ${av.snapshotCriterios[c.nome]}/5</span>` : "").join("")}
+            </div>` : ""}
         </div>`;
       }).join("") : `<div class="empty-state">Ainda sem avaliações registadas.</div>`}
     `;
   }
 
-  function attLabel(estado) {
-    const map = { presente: ["Presente", "success"], falta: ["Falta", "danger"], falta_justificada: ["Falta justificada", "warn"], doenca: ["Doença", "info"] };
-    const pair = map[estado] || ["—", "ink-soft"];
+
+  function attLabel(estado, estadosPresenca) {
+    const fallback = { presente: ["Presente", "success"], falta: ["Falta", "danger"], falta_justificada: ["Falta justificada", "warn"], doenca: ["Doença", "info"] };
+    if (estadosPresenca && estadosPresenca.length) {
+      const cor = { c1: "primary", c2: "accent", c3: "info", c4: "warn", c5: "success", c6: "ink-soft" };
+      const found = estadosPresenca.find((e) => e.valor === estado);
+      if (found) return `<span style="color:var(--${cor[found.cor] || "ink-soft"}); font-weight:600;">${esc(found.nome)}</span>`;
+    }
+    const pair = fallback[estado] || ["—", "ink-soft"];
     return `<span style="color:var(--${pair[1]}); font-weight:600;">${pair[0]}</span>`;
   }
 
@@ -545,13 +577,14 @@
     const gruposList = U.byTurma(gruposRaw);
     const atletas = U.byTurma(atletasRaw);
     const turmaById = Object.fromEntries(turmas.map((t) => [t.id, t]));
-    const canEdit = Auth.isAdmin();
+    const canEdit = Auth.can("editarAtletas");
     const cards = gruposList.sort((a, b) => a.ordem - b.ordem).map((g) => {
       const membros = atletas.filter((a) => a.grupoId === g.id);
       return `
-        <div class="card">
+        <div class="card" data-sortable-id="${g.id}">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
+              ${canEdit ? `<span class="drag-handle">⠿</span>` : ""}
               <span class="chip ${grupoClass(g.ordem)}">${esc(g.nome)}</span>
               <div class="secondary-text" style="margin-top:6px;">${esc(turmaById[g.turmaId] ? turmaById[g.turmaId].nome : "")}</div>
             </div>
@@ -572,8 +605,8 @@
     return `
       <div class="section-title"><h2>Grupos de Treino</h2>${canEdit ? `<button class="btn btn-accent" data-action="newGroup">+ Novo grupo</button>` : ""}</div>
       <div class="mat-line"></div>
-      <p style="color:var(--ink-soft); margin-bottom:14px;">Os grupos permitem adaptar o mesmo treino a diferentes níveis (ver Plano Anual, Secção 3). Reavalia e reorganiza os grupos nos momentos-chave da época.</p>
-      ${cards || `<div class="empty-state">Sem grupos criados.</div>`}
+      <p style="color:var(--ink-soft); margin-bottom:14px;">Os grupos permitem adaptar o mesmo treino a diferentes níveis (ver Plano Anual, Secção 3). Reavalia e reorganiza os grupos nos momentos-chave da época${canEdit ? " — arrasta para reordenar" : ""}.</p>
+      <div id="sortable-grupos">${cards || `<div class="empty-state">Sem grupos criados.</div>`}</div>
     `;
   }
 
@@ -648,7 +681,7 @@
     const list = U.byTurma(listRaw);
     const catalogo = U.byTurma(catalogoRaw).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
     const nSessoes = U.byTurma(sessoesRaw).length;
-    const canEdit = Auth.isAdmin();
+    const canEdit = Auth.can("editarPlanos");
     const diasSemana = (turma && turma.diasSemana) || [];
     const feriados = (turma && turma.feriados) || [];
 
@@ -670,9 +703,9 @@
     const weekLabel = { 1: "Semana 1", 2: "Semana 2", 3: "Semana 3", 0: "Semana 4" };
 
     const microciclosCards = catalogo.map((c) => `
-      <div class="card">
+      <div class="card" data-sortable-id="${c.id}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-          <span class="chip ${U.tipoClass(c.nome)}">${esc(c.nome)}</span>
+          <span>${canEdit ? `<span class="drag-handle">⠿</span>` : ""}<span class="chip ${U.tipoClass(c.nome)}">${esc(c.nome)}</span></span>
           ${canEdit ? `
             <div style="display:flex; gap:6px;">
               <button class="icon-btn" data-action="editMicrociclo" data-id="${c.id}">✎</button>
@@ -740,9 +773,12 @@
         </form>
       </div>
 
-      <div class="section-title" style="margin-top:20px;"><h3 style="font-size:1.05rem;">Microciclos (tipos de treino)</h3>${canEdit ? `<button class="btn btn-accent btn-sm" data-action="newMicrociclo">+ Novo microciclo</button>` : ""}</div>
+      <div class="section-title" style="margin-top:20px;">
+        <h3 style="font-size:1.05rem;">Microciclos (tipos de treino)</h3>
+        ${canEdit ? `<div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn btn-ghost btn-sm" data-action="downloadMesoMicroTemplate">⬇ Modelo Excel</button><label class="btn btn-ghost btn-sm" style="margin:0;">⬆ Importar Excel<input type="file" id="import-meso-micro-input" accept=".xlsx,.xls" style="display:none;"></label><button class="btn btn-accent btn-sm" data-action="newMicrociclo">+ Novo microciclo</button></div>` : ""}
+      </div>
       <div class="mat-line"></div>
-      <div class="grid cols-3">${microciclosCards || `<div class="empty-state">Ainda sem microciclos — usa "+ Novo microciclo" (ex.: Trampolim, Tumbling, Solo).</div>`}</div>
+      <div class="grid cols-3" id="sortable-microciclos-catalogo">${microciclosCards || `<div class="empty-state">Ainda sem microciclos — usa "+ Novo microciclo" (ex.: Trampolim, Tumbling, Solo).</div>`}</div>
 
       <div class="section-title" style="margin-top:20px;"><h3 style="font-size:1.05rem;">Mesociclos</h3>${canEdit ? `<button class="btn btn-accent btn-sm" data-action="newMeso">+ Novo mesociclo</button>` : ""}</div>
       <div class="grid cols-2" style="margin-top:10px; align-items:start;">
@@ -822,8 +858,9 @@
       </form>`;
   }
 
-  function avaliacaoFormHtml(atleta, mesociclos, mesocicloIdPreset) {
-    const habilidades = Seed.HABILIDADES;
+  function avaliacaoFormHtml(atleta, mesociclos, mesocicloIdPreset, habilidadesNomes, criterios) {
+    const habilidades = habilidadesNomes || Seed.HABILIDADES;
+    criterios = criterios || [];
     const fases = atleta.habilidades || {};
     return `
       <div class="modal-head"><h3>Nova avaliação — ${esc(atleta.nome)}</h3><button class="icon-btn" data-action="closeModal">✕</button></div>
@@ -851,6 +888,18 @@
             </select>
           </div>
         `).join("")}
+        ${criterios.length ? `
+          <div class="mat-line"></div>
+          <div class="eyebrow">Outros critérios</div>
+          ${criterios.map((c) => `
+            <div class="field-row" style="align-items:center;">
+              <span style="flex:2; font-size:.86rem;">${esc(c.nome)}</span>
+              <select name="criterio_${c.id}" style="flex:1;">
+                ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}
+              </select>
+            </div>
+          `).join("")}
+        ` : ""}
         <div class="modal-actions"><button type="button" class="btn btn-ghost" data-action="closeModal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar avaliação</button></div>
       </form>`;
   }
@@ -873,5 +922,24 @@
     },
   });
   global.afterRenderHooks = global.afterRenderHooks || [];
-  global.afterRenderHooks.push(afterAtletasList, bindTabs, afterAvaliacaoForm);
+  function afterMesociclosPage() {
+    const fileInput = document.getElementById("import-meso-micro-input");
+    if (fileInput) {
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files[0]) Actions.importMesoMicroFile(fileInput.files[0]);
+      });
+    }
+    const microCatalogo = document.getElementById("sortable-microciclos-catalogo");
+    if (microCatalogo && Auth.isAdmin()) {
+      U.makeSortable(microCatalogo, (novaOrdem) => Actions.reordenarCatalogo("microciclos-catalogo", novaOrdem));
+    }
+  }
+  function afterGruposPage() {
+    const container = document.getElementById("sortable-grupos");
+    if (container && Auth.can("editarAtletas")) {
+      U.makeSortable(container, (novaOrdem) => Actions.reordenarCatalogo("grupos", novaOrdem));
+    }
+  }
+
+  global.afterRenderHooks.push(afterAtletasList, bindTabs, afterAvaliacaoForm, afterMesociclosPage, afterGruposPage);
 })(window);

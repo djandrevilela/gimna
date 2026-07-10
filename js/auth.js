@@ -169,7 +169,12 @@
       const role = Auth.role();
       if (!role) return false;
       if (role === "manager") return true;
-      if (role === "ajudante") return ["comment", "markAttendance", "view"].includes(action);
+      if (role === "ajudante") {
+        const base = ["comment", "markAttendance", "view"];
+        if (base.includes(action)) return true;
+        const extra = (Auth.activeMembership && Auth.activeMembership.permissoesExtra) || [];
+        return extra.includes(action);
+      }
       if (role === "atleta") return ["view", "sendMessage"].includes(action);
       return false;
     },

@@ -9,6 +9,10 @@
     if (!Auth.isAdmin()) { toast("Só o gestor pode fazer isto."); return false; }
     return true;
   }
+  function requirePermission(perm) {
+    if (!Auth.can(perm)) { toast("Sem permissão para fazer isto."); return false; }
+    return true;
+  }
   function ctxTenant() { return Auth.activeMembership ? Auth.activeMembership.tenantId : null; }
   function ctxTurma() { return Auth.activeMembership ? Auth.activeMembership.turmaId : null; }
 
@@ -23,24 +27,30 @@
     // ---------------- Atletas ----------------
     openAthlete: (ds) => { location.hash = "#/atletas/" + ds.id; },
     newAthlete: async () => {
-      if (!requireAdmin()) return;
-      const [turmas, grupos] = await Promise.all([DB.getAll("turmas"), DB.getAll("grupos")]);
-      openModal(Views._helpers.athleteFormHtml(null, U.byTenant(turmas), U.byTurma(grupos)));
+      if (!requirePermission("editarAtletas")) return;
+      const [turmas, grupos, campos] = await Promise.all([DB.getAll("turmas"), DB.getAll("grupos"), U.getCamposPersonalizados()]);
+      openModal(Views._helpers.athleteFormHtml(null, U.byTenant(turmas), U.byTurma(grupos), campos));
       Views._helpers.afterAthleteForm();
     },
     editAthlete: async (ds) => {
-      if (!requireAdmin()) return;
-      const [atleta, turmas, grupos] = await Promise.all([DB.get("atletas", ds.id), DB.getAll("turmas"), DB.getAll("grupos")]);
-      openModal(Views._helpers.athleteFormHtml(atleta, U.byTenant(turmas), U.byTurma(grupos)));
+      if (!requirePermission("editarAtletas")) return;
+      const [atleta, turmas, grupos, campos] = await Promise.all([DB.get("atletas", ds.id), DB.getAll("turmas"), DB.getAll("grupos"), U.getCamposPersonalizados()]);
+      openModal(Views._helpers.athleteFormHtml(atleta, U.byTenant(turmas), U.byTurma(grupos), campos));
       Views._helpers.afterAthleteForm();
     },
     saveAthlete: async (form) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarAtletas")) return;
       const fd = new FormData(form);
       const id = fd.get("id") || undefined;
       const existing = id ? await DB.get("atletas", id) : null;
       const fotoInput = form.querySelector("#foto-input");
       const foto = (fotoInput && fotoInput.dataset.resized) || fd.get("fotoAtual") || (existing && existing.foto) || null;
+      const [habilidadesNomes, campos] = await Promise.all([U.getHabilidadesNomes(), U.getCamposPersonalizados()]);
+      const camposCustom = {};
+      campos.forEach((c) => {
+        if (c.tipo === "checkbox") camposCustom[c.id] = fd.get("campo_" + c.id) === "on";
+        else camposCustom[c.id] = fd.get("campo_" + c.id) || "";
+      });
       const record = Object.assign({}, existing, {
         id, tenantId: ctxTenant(),
         nome: fd.get("nome"), dataNascimento: fd.get("dataNascimento"), foto,
@@ -48,7 +58,8 @@
         encarregado: fd.get("encarregado"), contacto: fd.get("contacto"),
         notasMedicas: fd.get("notasMedicas"), ativo: fd.get("ativo") === "on",
         objetivosCoach: fd.get("objetivosCoach") || "", autorizacaoImagem: fd.get("autorizacaoImagem") === "on",
-        habilidades: (existing && existing.habilidades) || Seed.HABILIDADES.reduce((acc, h) => { acc[h] = 1; return acc; }, {}),
+        camposCustom,
+        habilidades: (existing && existing.habilidades) || habilidadesNomes.reduce((acc, h) => { acc[h] = 1; return acc; }, {}),
       });
       await DB.put("atletas", record);
       closeModal(); toast("Atleta guardado."); await renderRoute();
@@ -78,11 +89,11 @@
 
     // ---------------- Grupos ----------------
     newGroup: async () => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarAtletas")) return;
       openModal(Views._helpers.groupFormHtml(null, U.byTenant(await DB.getAll("turmas"))));
     },
     editGroup: async (ds) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarAtletas")) return;
       const [g, turmas] = await Promise.all([DB.get("grupos", ds.id), DB.getAll("turmas")]);
       openModal(Views._helpers.groupFormHtml(g, U.byTenant(turmas)));
     },
@@ -95,7 +106,7 @@
       toast("Grupo removido."); await renderRoute();
     },
     saveGroup: async (form) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarAtletas")) return;
       const fd = new FormData(form);
       const id = fd.get("id") || undefined;
       const existing = id ? await DB.get("grupos", id) : null;
@@ -304,7 +315,7 @@
       if (ta) ta.focus();
     },
     saveSessionPlan: async (ds) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarPlanos")) return;
       const s = await DB.get("sessoes", ds.id);
       s.mesocicloId = document.getElementById("sess-meso-select").value;
       s.tipo = document.getElementById("sess-tipo-select").value;
@@ -314,7 +325,7 @@
       toast("Sessão atualizada."); await renderRoute();
     },
     saveGroupPlans: async (ds) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarPlanos")) return;
       const s = await DB.get("sessoes", ds.id);
       s.planosGrupo = s.planosGrupo || {};
       document.querySelectorAll("[data-plano-grupo]").forEach((ta) => { s.planosGrupo[ta.dataset.planoGrupo] = ta.value; });
@@ -322,7 +333,7 @@
       toast("Planos por grupo guardados."); await renderRoute();
     },
     addAthletePlan: async (form) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarPlanos")) return;
       const fd = new FormData(form);
       const s = await DB.get("sessoes", fd.get("sessaoId"));
       s.planosAtleta = s.planosAtleta || {};
@@ -331,7 +342,7 @@
       toast("Nota adicionada."); await renderRoute();
     },
     removeAthletePlan: async (ds) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarPlanos")) return;
       const s = await DB.get("sessoes", ds.id);
       if (s.planosAtleta) delete s.planosAtleta[ds.athlete];
       await DB.put("sessoes", s);
@@ -471,9 +482,9 @@
     },
 
     // ---------------- Eventos extra / provas / exibições ----------------
-    newEvento: () => { if (!requireAdmin()) return; openModal(Views._helpers.eventoFormHtml()); },
+    newEvento: () => { if (!requirePermission("editarCalendario")) return; openModal(Views._helpers.eventoFormHtml()); },
     saveEvento: async (form) => {
-      if (!requireAdmin()) return;
+      if (!requirePermission("editarCalendario")) return;
       const fd = new FormData(form);
       const id = fd.get("id") || undefined;
       const existing = id ? await DB.get("sessoes", id) : null;
@@ -524,22 +535,27 @@
     // ---------------- Avaliações ----------------
     newAvaliacao: async (ds) => {
       if (!Auth.can("comment")) { toast("Sem permissão."); return; }
-      const [atleta, mesociclos] = await Promise.all([DB.get("atletas", ds.atleta), DB.getAll("mesociclos")]);
-      openModal(Views._helpers.avaliacaoFormHtml(atleta, U.byTurma(mesociclos), ds.meso || null));
+      const [atleta, mesociclos, habilidadesNomes, criterios] = await Promise.all([
+        DB.get("atletas", ds.atleta), DB.getAll("mesociclos"), U.getHabilidadesNomes(), U.getCriteriosAvaliacao(),
+      ]);
+      openModal(Views._helpers.avaliacaoFormHtml(atleta, U.byTurma(mesociclos), ds.meso || null, habilidadesNomes, criterios));
       Views._helpers.afterAvaliacaoForm();
     },
     saveAvaliacao: async (form) => {
       if (!Auth.can("comment")) { toast("Sem permissão."); return; }
       const fd = new FormData(form);
       const atleta = await DB.get("atletas", fd.get("atletaId"));
+      const [habilidadesNomes, criterios] = await Promise.all([U.getHabilidadesNomes(), U.getCriteriosAvaliacao()]);
       const snapshotHabilidades = {};
-      Seed.HABILIDADES.forEach((h, i) => { snapshotHabilidades[h] = parseInt(fd.get("fase_" + i), 10) || 1; });
+      habilidadesNomes.forEach((h, i) => { snapshotHabilidades[h] = parseInt(fd.get("fase_" + i), 10) || 1; });
+      const snapshotCriterios = {};
+      criterios.forEach((c) => { snapshotCriterios[c.nome] = parseInt(fd.get("criterio_" + c.id), 10) || 1; });
       const tipo = fd.get("tipo");
       await DB.put("avaliacoes", {
         tenantId: ctxTenant(), turmaId: ctxTurma(), atletaId: atleta.id,
         tipo, mesocicloId: tipo === "mesociclo" ? fd.get("mesocicloId") : null,
         data: fd.get("data"), observacoesGerais: fd.get("observacoesGerais") || "",
-        snapshotHabilidades, autorId: Auth.current.id, autorNome: Auth.current.nome,
+        snapshotHabilidades, snapshotCriterios, autorId: Auth.current.id, autorNome: Auth.current.nome,
         criadoEm: new Date().toISOString(),
       });
       closeModal(); toast("Avaliação guardada."); await renderRoute();
@@ -549,6 +565,97 @@
       if (!confirm("Remover esta avaliação?")) return;
       await DB.remove("avaliacoes", ds.id);
       toast("Avaliação removida."); await renderRoute();
+    },
+
+    downloadMesoMicroTemplate: () => {
+      const wb = XLSX.utils.book_new();
+      const wsMicro = XLSX.utils.aoa_to_sheet([
+        ["Nome", "Plano Genérico"],
+        ["Trampolim", "Aquecimento, saltos base, progressões de mortal."],
+      ]);
+      wsMicro["!cols"] = [{ wch: 24 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, wsMicro, "Microciclos");
+
+      const wsMeso = XLSX.utils.aoa_to_sheet([
+        ["Nome", "Data Início (AAAA-MM-DD)", "Data Fim (AAAA-MM-DD)", "Objetivo"],
+        ["M1 - Fundação", "2026-09-01", "2026-10-31", "Diagnóstico e formação de grupos."],
+      ]);
+      wsMeso["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, wsMeso, "Mesociclos");
+
+      const wsPlanos = XLSX.utils.aoa_to_sheet([
+        ["Mesociclo", "Microciclo", "Plano (substitui o genérico só neste mesociclo)"],
+        ["M1 - Fundação", "Trampolim", "Aquecimento, Trampolim, Alongamentos"],
+      ]);
+      wsPlanos["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, wsPlanos, "Planos por Mesociclo");
+
+      XLSX.writeFile(wb, "modelo-mesociclos-microciclos.xlsx");
+    },
+    importMesoMicroFile: async (file) => {
+      if (!requireAdmin()) return;
+      try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        let nMicro = 0, nMeso = 0, nPlanos = 0;
+
+        if (wb.Sheets["Microciclos"]) {
+          const catalogoAtual = U.byTurma(await DB.getAll("microciclosTipos"));
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets["Microciclos"], { defval: "" });
+          for (const row of rows) {
+            const nome = (row["Nome"] || "").toString().trim();
+            if (!nome) continue;
+            const existente = catalogoAtual.find((c) => c.nome.toLowerCase() === nome.toLowerCase());
+            await DB.put("microciclosTipos", {
+              id: existente ? existente.id : undefined, tenantId: ctxTenant(), turmaId: ctxTurma(),
+              nome, planoGenerico: (row["Plano Genérico"] || "").toString(),
+              cor: (existente && existente.cor) || Season.corParaNome(nome, catalogoAtual),
+              ordem: (existente && existente.ordem) || catalogoAtual.length + nMicro + 1,
+            });
+            nMicro++;
+          }
+        }
+
+        const mesociclosAtuais = U.byTurma(await DB.getAll("mesociclos"));
+        if (wb.Sheets["Mesociclos"]) {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets["Mesociclos"], { defval: "" });
+          for (const row of rows) {
+            const nome = (row["Nome"] || "").toString().trim();
+            const dataInicio = (row["Data Início (AAAA-MM-DD)"] || row["Data Início"] || "").toString().trim();
+            const dataFim = (row["Data Fim (AAAA-MM-DD)"] || row["Data Fim"] || "").toString().trim();
+            if (!nome || !dataInicio || !dataFim) continue;
+            const existente = mesociclosAtuais.find((m) => m.nome.toLowerCase() === nome.toLowerCase());
+            await DB.put("mesociclos", {
+              id: existente ? existente.id : undefined, tenantId: ctxTenant(), turmaId: ctxTurma(),
+              nome, dataInicio, dataFim, objetivo: (row["Objetivo"] || "").toString(),
+              planosPorMicrociclo: (existente && existente.planosPorMicrociclo) || {},
+            });
+            nMeso++;
+          }
+        }
+
+        if (wb.Sheets["Planos por Mesociclo"]) {
+          const mesosAtualizados = U.byTurma(await DB.getAll("mesociclos"));
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets["Planos por Mesociclo"], { defval: "" });
+          for (const row of rows) {
+            const mesoNome = (row["Mesociclo"] || "").toString().trim();
+            const microNome = (row["Microciclo"] || "").toString().trim();
+            const plano = (row["Plano (substitui o genérico só neste mesociclo)"] || row["Plano"] || "").toString();
+            if (!mesoNome || !microNome || !plano) continue;
+            const meso = mesosAtualizados.find((m) => m.nome.toLowerCase() === mesoNome.toLowerCase());
+            if (!meso) continue;
+            meso.planosPorMicrociclo = meso.planosPorMicrociclo || {};
+            meso.planosPorMicrociclo[microNome] = plano;
+            await DB.put("mesociclos", meso);
+            nPlanos++;
+          }
+        }
+
+        toast(`Importado: ${nMicro} microciclo(s), ${nMeso} mesociclo(s), ${nPlanos} plano(s) específico(s).`);
+        await renderRoute();
+      } catch (e) {
+        toast("Não foi possível ler o ficheiro (" + e.message + ").");
+      }
     },
 
     // ---------------- Importação/exportação Excel de atletas ----------------
@@ -570,6 +677,7 @@
         const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
         const grupos = U.byTurma(await DB.getAll("grupos"));
         const grupoPorNome = Object.fromEntries(grupos.map((g) => [g.nome.trim().toLowerCase(), g.id]));
+        const habilidadesNomes = await U.getHabilidadesNomes();
         let importados = 0, ignorados = 0;
         for (const row of rows) {
           const nome = (row["Nome"] || "").toString().trim();
@@ -584,7 +692,7 @@
             contacto: (row["Contacto"] || "").toString(),
             notasMedicas: (row["Notas Médicas"] || "").toString(),
             autorizacaoImagem: autorizado, ativo: true, foto: null,
-            habilidades: Seed.HABILIDADES.reduce((acc, h) => { acc[h] = 1; return acc; }, {}),
+            habilidades: habilidadesNomes.reduce((acc, h) => { acc[h] = 1; return acc; }, {}),
           });
           importados++;
         }
@@ -593,6 +701,44 @@
       } catch (e) {
         toast("Não foi possível ler o ficheiro (" + e.message + ").");
       }
+    },
+
+    editPermissoesAjudante: async (ds) => {
+      if (!requireAdmin()) return;
+      const memberships = await DB.getAll("memberships");
+      const m = memberships.find((x) => x.id === ds.id);
+      if (!m) return;
+      openModal(Views._helpers.permissoesFormHtml(m, ds.nome));
+    },
+    savePermissoesAjudante: async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const memberships = await DB.getAll("memberships");
+      const m = memberships.find((x) => x.id === fd.get("id"));
+      if (!m) return;
+      const perms = ["editarAtletas", "editarPlanos", "editarCalendario"].filter((k) => fd.get("perm_" + k) === "on");
+      m.permissoesExtra = perms;
+      await DB.put("memberships", m);
+      if (Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        Api.request("PUT", "/api/memberships/" + m.id + "/permissoes", { permissoesExtra: perms }).catch(() => {});
+      }
+      closeModal(); toast("Permissões guardadas."); await renderRoute();
+    },
+
+    saveNotifPrefs: async (form) => {
+      const fd = new FormData(form);
+      const notifPrefs = {
+        treinos: fd.get("notif_treinos") === "on",
+        aniversarios: fd.get("notif_aniversarios") === "on",
+        avaliacoes: fd.get("notif_avaliacoes") === "on",
+        resumo: fd.get("notif_resumo") === "on",
+      };
+      const existing = await DB.get("preferencias", Auth.current.id);
+      await DB.put("preferencias", Object.assign({}, existing, { id: Auth.current.id, userId: Auth.current.id, notifPrefs }));
+      if (Auth.onlineMode && global.Api && Api.isConfigured() && Api.token) {
+        Api.request("PUT", "/api/preferencias/me", { notifPrefs }).catch(() => {});
+      }
+      toast("Preferências guardadas."); await renderRoute();
     },
 
     // ---------------- Definições ----------------
@@ -668,6 +814,81 @@
       if (nova) await Auth.setActiveMembership(nova.id);
       closeModal(); toast("Turma criada!"); await U.renderShell();
     },
+  };
+
+  function makeCatalogActions(store, tipoKey, prefix, extra) {
+    extra = extra || {};
+    const out = {};
+    out["new" + prefix] = () => { if (!requireAdmin()) return; openModal(Views._helpers.catalogoFormHtml(tipoKey, null)); };
+    out["edit" + prefix] = async (ds) => { if (!requireAdmin()) return; openModal(Views._helpers.catalogoFormHtml(tipoKey, await DB.get(store, ds.id))); };
+    out["delete" + prefix] = async (ds) => {
+      if (!requireAdmin()) return;
+      if (!confirm("Remover este item?")) return;
+      await DB.remove(store, ds.id);
+      toast("Removido."); await renderRoute();
+    };
+    out["save" + prefix] = async (form) => {
+      if (!requireAdmin()) return;
+      const fd = new FormData(form);
+      const id = fd.get("id") || undefined;
+      const existing = id ? await DB.get(store, id) : null;
+      const base = { id, tenantId: ctxTenant(), turmaId: ctxTurma(), nome: fd.get("nome"), ordem: (existing && existing.ordem) || 99 };
+      const record = Object.assign({}, existing, base, extra.buildExtra ? extra.buildExtra(fd) : {});
+      await DB.put(store, record);
+      closeModal(); toast("Guardado."); await renderRoute();
+    };
+    return out;
+  }
+
+  Object.assign(Actions,
+    makeCatalogActions("habilidadesTipos", "habilidade", "Habilidade"),
+    makeCatalogActions("estadosPresenca", "estadoPresenca", "EstadoPresenca", {
+      buildExtra: (fd) => ({ valor: (fd.get("nome") || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_"), cor: fd.get("cor") || "c1", contaComoPresenca: fd.get("contaComoPresenca") === "on" }),
+    }),
+    makeCatalogActions("criteriosAvaliacao", "criterio", "Criterio"),
+    makeCatalogActions("camposPersonalizados", "campoPersonalizado", "CampoPersonalizado", {
+      buildExtra: (fd) => ({ tipo: fd.get("tipo") || "texto" }),
+    })
+  );
+
+  Actions.reordenarCatalogo = async (idPrefix, novaOrdemIds) => {
+    if (!requireAdmin()) return;
+    const storeMap = {
+      "habilidades-tipos": "habilidadesTipos", "estados-presenca": "estadosPresenca",
+      "criterios-avaliacao": "criteriosAvaliacao", "campos-personalizados": "camposPersonalizados",
+      "microciclos-catalogo": "microciclosTipos", "grupos": "grupos",
+    };
+    const store = storeMap[idPrefix];
+    if (!store) return;
+    for (let i = 0; i < novaOrdemIds.length; i++) {
+      const item = await DB.get(store, novaOrdemIds[i]);
+      if (item && item.ordem !== i + 1) { item.ordem = i + 1; await DB.put(store, item); }
+    }
+  };
+
+  Actions.saveMarca = async (form) => {
+    if (!requireAdmin()) return;
+    const fd = new FormData(form);
+    const turma = await DB.get("turmas", ctxTurma());
+    turma.corPrimaria = fd.get("corPrimaria");
+    turma.corAccent = fd.get("corAccent");
+    await DB.put("turmas", turma);
+    toast("Marca guardada."); await U.renderShell();
+  };
+  Actions.resetMarca = async () => {
+    if (!requireAdmin()) return;
+    const turma = await DB.get("turmas", ctxTurma());
+    turma.corPrimaria = null; turma.corAccent = null;
+    await DB.put("turmas", turma);
+    toast("Cores repostas."); await U.renderShell();
+  };
+  Actions.saveResumoPeriodicidade = async (form) => {
+    if (!requireAdmin()) return;
+    const fd = new FormData(form);
+    const turma = await DB.get("turmas", ctxTurma());
+    turma.resumoPeriodicidade = fd.get("resumoPeriodicidade");
+    await DB.put("turmas", turma);
+    toast("Preferência guardada."); await renderRoute();
   };
 
   global.Actions = Actions;

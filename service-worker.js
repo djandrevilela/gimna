@@ -6,7 +6,7 @@
    — vivem no IndexedDB (ver js/db.js), por isso a app funciona
    totalmente offline depois da primeira visita.
    ========================================================= */
-const CACHE_NAME = "gimna-cache-v2";
+const CACHE_NAME = "gimna-cache-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -26,6 +26,7 @@ const APP_SHELL = [
   "./js/views2.js",
   "./js/views3.js",
   "./js/views4.js",
+  "./js/views5.js",
   "./js/actions.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

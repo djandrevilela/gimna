@@ -32,12 +32,13 @@ CREATE TABLE IF NOT EXISTS turmas (
   id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, nome TEXT NOT NULL, descricao TEXT,
   horario TEXT, epocaInicio TEXT, epocaFim TEXT, resumoObjetivos TEXT,
   diasSemana TEXT DEFAULT '[]', feriados TEXT DEFAULT '[]', padraoMicrociclo TEXT,
+  corPrimaria TEXT, corAccent TEXT, logoUrl TEXT, resumoPeriodicidade TEXT DEFAULT 'off',
   updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS memberships (
   id TEXT PRIMARY KEY, userId TEXT NOT NULL, turmaId TEXT NOT NULL, tenantId TEXT NOT NULL,
-  role TEXT NOT NULL, atletaId TEXT, estado TEXT DEFAULT 'ativo',
+  role TEXT NOT NULL, atletaId TEXT, estado TEXT DEFAULT 'ativo', permissoesExtra TEXT DEFAULT '[]',
   updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -56,7 +57,7 @@ CREATE TABLE IF NOT EXISTS atletas (
   id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, grupoId TEXT,
   nome TEXT NOT NULL, dataNascimento TEXT, encarregado TEXT, contacto TEXT,
   notasMedicas TEXT, foto TEXT, ativo INTEGER DEFAULT 1, habilidades TEXT DEFAULT '{}',
-  autorizacaoImagem INTEGER DEFAULT 0, objetivosCoach TEXT, objetivosProprios TEXT,
+  autorizacaoImagem INTEGER DEFAULT 0, objetivosCoach TEXT, objetivosProprios TEXT, camposCustom TEXT DEFAULT '{}',
   updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -98,14 +99,35 @@ CREATE TABLE IF NOT EXISTS mensagens (
 );
 
 CREATE TABLE IF NOT EXISTS preferencias (
-  userId TEXT PRIMARY KEY, widgetsDashboard TEXT, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+  userId TEXT PRIMARY KEY, widgetsDashboard TEXT, notifPrefs TEXT DEFAULT '{}', updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS avaliacoes (
   id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, atletaId TEXT NOT NULL,
   tipo TEXT NOT NULL, mesocicloId TEXT, data TEXT NOT NULL, observacoesGerais TEXT,
-  snapshotHabilidades TEXT DEFAULT '{}', autorId TEXT, autorNome TEXT,
+  snapshotHabilidades TEXT DEFAULT '{}', snapshotCriterios TEXT DEFAULT '{}', autorId TEXT, autorNome TEXT,
   criadoEm TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS habilidades_tipos (
+  id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, nome TEXT NOT NULL,
+  ordem INTEGER DEFAULT 1, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS estados_presenca (
+  id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, nome TEXT NOT NULL,
+  cor TEXT DEFAULT 'c1', contaComoPresenca INTEGER DEFAULT 0, ordem INTEGER DEFAULT 1,
+  updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS criterios_avaliacao (
+  id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, nome TEXT NOT NULL,
+  ordem INTEGER DEFAULT 1, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS campos_personalizados (
+  id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, nome TEXT NOT NULL,
+  tipo TEXT DEFAULT 'texto', ordem INTEGER DEFAULT 1, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -140,5 +162,13 @@ addColumnIfMissing("atletas", "objetivosProprios", "TEXT");
 addColumnIfMissing("sessoes", "categoria", "TEXT DEFAULT 'treino'");
 addColumnIfMissing("sessoes", "nomeEvento", "TEXT");
 addColumnIfMissing("sessoes", "hora", "TEXT");
+addColumnIfMissing("turmas", "corPrimaria", "TEXT");
+addColumnIfMissing("turmas", "corAccent", "TEXT");
+addColumnIfMissing("turmas", "logoUrl", "TEXT");
+addColumnIfMissing("turmas", "resumoPeriodicidade", "TEXT DEFAULT 'off'");
+addColumnIfMissing("memberships", "permissoesExtra", "TEXT DEFAULT '[]'");
+addColumnIfMissing("atletas", "camposCustom", "TEXT DEFAULT '{}'");
+addColumnIfMissing("avaliacoes", "snapshotCriterios", "TEXT DEFAULT '{}'");
+addColumnIfMissing("preferencias", "notifPrefs", "TEXT DEFAULT '{}'");
 
 module.exports = db;

@@ -6,10 +6,11 @@
    ========================================================= */
 (function (global) {
   const DB_NAME = "gimna-db";
-  const DB_VERSION = 5;
+  const DB_VERSION = 6;
   const STORES = [
     "tenants", "users", "memberships", "convites", "turmas", "grupos", "atletas",
-    "mesociclos", "microciclosTipos", "sessoes", "presencas", "comentarios", "mensagens", "avaliacoes", "otpCodes",
+    "mesociclos", "microciclosTipos", "habilidadesTipos", "estadosPresenca", "criteriosAvaliacao",
+    "camposPersonalizados", "sessoes", "presencas", "comentarios", "mensagens", "avaliacoes", "otpCodes",
     "syncQueue", "preferencias"
   ];
 

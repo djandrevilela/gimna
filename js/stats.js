@@ -11,28 +11,37 @@
       DB.getAll("atletas"), DB.getAll("grupos"), DB.getAll("turmas"), DB.getAll("sessoes"), DB.getAll("presencas"), DB.getAll("comentarios"),
       DB.getAll("mesociclos"), DB.getAll("avaliacoes"),
     ]);
+    const [habilidadesNomes, estadosPresenca] = await Promise.all([U.getHabilidadesNomes(), U.getEstadosPresenca()]);
     return {
       atletas: U.byTurma(atletas), grupos: U.byTurma(grupos), turmas: U.byTenant(turmas),
       sessoes: U.byTurma(sessoes), presencas: U.byTenant(presencas), comentarios: U.byTenant(comentarios),
       mesociclos: U.byTurma(mesociclos), avaliacoes: U.byTenant(avaliacoes),
+      habilidadesNomes, estadosPresenca,
     };
   }
 
-  function attendanceBreakdown(presencas) {
+  function attendanceBreakdown(presencas, estadosPresenca) {
     const total = presencas.length;
-    const counts = { presente: 0, falta: 0, falta_justificada: 0, doenca: 0 };
-    presencas.forEach((p) => { if (counts[p.estado] !== undefined) counts[p.estado]++; });
-    return { total, counts, pctPresente: pct(counts.presente, total) };
+    const counts = {};
+    presencas.forEach((p) => { counts[p.estado] = (counts[p.estado] || 0) + 1; });
+    const presencaValores = new Set((estadosPresenca || []).filter((e) => e.contaComoPresenca).map((e) => e.valor));
+    const presentesN = presencaValores.size
+      ? presencas.filter((p) => presencaValores.has(p.estado)).length
+      : presencas.filter((p) => p.estado === "presente").length; // fallback sem catálogo
+    return { total, counts, pctPresente: pct(presentesN, total) };
   }
 
-  function athletePct(atletaId, presencas) {
+  function athletePct(atletaId, presencas, estadosPresenca) {
     const mine = presencas.filter((p) => p.atletaId === atletaId);
-    const presentes = mine.filter((p) => p.estado === "presente").length;
+    const presencaValores = new Set((estadosPresenca || []).filter((e) => e.contaComoPresenca).map((e) => e.valor));
+    const presentes = presencaValores.size
+      ? mine.filter((p) => presencaValores.has(p.estado)).length
+      : mine.filter((p) => p.estado === "presente").length;
     return { total: mine.length, presentes, pct: pct(presentes, mine.length) };
   }
 
-  function rankAthletesByAttendance(atletas, presencas) {
-    return atletas.filter((a) => a.ativo).map((a) => Object.assign({ atleta: a }, athletePct(a.id, presencas)))
+  function rankAthletesByAttendance(atletas, presencas, estadosPresenca) {
+    return atletas.filter((a) => a.ativo).map((a) => Object.assign({ atleta: a }, athletePct(a.id, presencas, estadosPresenca)))
       .filter((r) => r.total > 0)
       .sort((a, b) => (b.pct || 0) - (a.pct || 0));
   }

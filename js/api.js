@@ -67,6 +67,10 @@
     comentarios: "comentarios",
     mensagens: "mensagens",
     avaliacoes: "avaliacoes",
+    habilidadesTipos: "habilidades-tipos",
+    estadosPresenca: "estados-presenca",
+    criteriosAvaliacao: "criterios-avaliacao",
+    camposPersonalizados: "campos-personalizados",
   };
 
   Api.updateMe = (data) => Api.request("PUT", "/api/me", data);

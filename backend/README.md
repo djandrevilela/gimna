@@ -76,6 +76,13 @@ A partir daí:
 
 Isto foi testado de ponta a ponta (não é só teoria): criei conta, criei turma, adicionei um atleta, confirmei que apareceu na base de dados do servidor, e confirmei que desligar o backend não parte a app (cai para o modo local automaticamente).
 
+## Novidades desta versão
+
+- **Catálogos personalizáveis por turma**: habilidades técnicas, estados de presença, critérios de avaliação e campos personalizados do atleta — cada um com o seu CRUD (`/api/habilidades-tipos`, `/api/estados-presenca`, `/api/criterios-avaliacao`, `/api/campos-personalizados`), seguindo o mesmo padrão dos microciclos.
+- **Marca própria por turma**: `turmas.corPrimaria` / `corAccent` — atualiza-se via `PUT /api/turmas/:id`.
+- **Permissões extra por ajudante**: `PUT /api/memberships/:id/permissoes` — o gestor escolhe, pessoa a pessoa, se um ajudante pode editar atletas/grupos, planos de treino, ou o calendário.
+- **Resumo periódico**: `POST /push/turmas/:id/resumo-periodico` — respeita `turmas.resumoPeriodicidade` (off/semanal/mensal) e as preferências de notificação de cada pessoa (`preferencias.notifPrefs`).
+
 ## Lembretes diários (aniversários, treinos/eventos, avaliações)
 
 `POST /push/turmas/:id/lembretes-diarios` (autenticado, gestor) verifica, para essa turma: aniversários de atletas hoje, treinos/eventos de amanhã, e mesociclos terminados com avaliações em falta — e envia um push aos gestores/ajudantes com um resumo, se houver alguma novidade.

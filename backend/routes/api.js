@@ -29,12 +29,14 @@ router.put("/me", (req, res) => {
 
 router.get("/preferencias/me", (req, res) => {
   const row = db.prepare("SELECT * FROM preferencias WHERE userId = ?").get(req.userId);
-  res.json(row ? parseJsonCols(row, ["widgetsDashboard"]) : null);
+  res.json(row ? parseJsonCols(row, ["widgetsDashboard", "notifPrefs"]) : null);
 });
 router.put("/preferencias/me", (req, res) => {
-  const widgets = JSON.stringify(req.body.widgets || []);
-  db.prepare("INSERT INTO preferencias (userId, widgetsDashboard, updatedAt) VALUES (?,?,?) ON CONFLICT(userId) DO UPDATE SET widgetsDashboard=excluded.widgetsDashboard, updatedAt=excluded.updatedAt")
-    .run(req.userId, widgets, nowIso());
+  const existing = db.prepare("SELECT * FROM preferencias WHERE userId = ?").get(req.userId);
+  const widgets = req.body.widgets !== undefined ? JSON.stringify(req.body.widgets) : (existing ? existing.widgetsDashboard : "[]");
+  const notifPrefs = req.body.notifPrefs !== undefined ? JSON.stringify(req.body.notifPrefs) : (existing ? existing.notifPrefs : "{}");
+  db.prepare("INSERT INTO preferencias (userId, widgetsDashboard, notifPrefs, updatedAt) VALUES (?,?,?,?) ON CONFLICT(userId) DO UPDATE SET widgetsDashboard=excluded.widgetsDashboard, notifPrefs=excluded.notifPrefs, updatedAt=excluded.updatedAt")
+    .run(req.userId, widgets, notifPrefs, nowIso());
   res.json({ ok: true });
 });
 
@@ -68,10 +70,12 @@ router.get("/turmas/:id", requireMembership(), (req, res) => {
 
 router.put("/turmas/:id", requireMembership(["manager"]), (req, res) => {
   const b = req.body;
-  db.prepare("UPDATE turmas SET nome=?, descricao=?, horario=?, epocaInicio=?, epocaFim=?, resumoObjetivos=?, diasSemana=?, feriados=?, padraoMicrociclo=?, updatedAt=? WHERE id=?")
+  db.prepare("UPDATE turmas SET nome=?, descricao=?, horario=?, epocaInicio=?, epocaFim=?, resumoObjetivos=?, diasSemana=?, feriados=?, padraoMicrociclo=?, corPrimaria=?, corAccent=?, logoUrl=?, resumoPeriodicidade=?, updatedAt=? WHERE id=?")
     .run(b.nome, b.descricao || "", b.horario || "", b.epocaInicio || null, b.epocaFim || null, b.resumoObjetivos || "",
       JSON.stringify(b.diasSemana || []), JSON.stringify(b.feriados || []),
-      b.padraoMicrociclo ? JSON.stringify(b.padraoMicrociclo) : null, nowIso(), req.params.id);
+      b.padraoMicrociclo ? JSON.stringify(b.padraoMicrociclo) : null,
+      b.corPrimaria || null, b.corAccent || null, b.logoUrl || null, b.resumoPeriodicidade || "off",
+      nowIso(), req.params.id);
   res.json({ ok: true });
 });
 
@@ -132,19 +136,20 @@ simpleResource({
 });
 
 simpleResource({
-  path: "atletas", table: "atletas", jsonCols: ["habilidades"], writeRoles: ["manager"],
+  path: "atletas", table: "atletas", jsonCols: ["habilidades", "camposCustom"], writeRoles: ["manager"],
   buildInsert: (req, id, isUpdate) => {
     const b = req.body;
     const habilidades = JSON.stringify(b.habilidades || {});
+    const camposCustom = JSON.stringify(b.camposCustom || {});
     if (isUpdate) {
-      return db.prepare("UPDATE atletas SET nome=?, dataNascimento=?, grupoId=?, encarregado=?, contacto=?, notasMedicas=?, foto=?, ativo=?, habilidades=?, autorizacaoImagem=?, objetivosCoach=?, updatedAt=? WHERE id=? AND turmaId=?")
+      return db.prepare("UPDATE atletas SET nome=?, dataNascimento=?, grupoId=?, encarregado=?, contacto=?, notasMedicas=?, foto=?, ativo=?, habilidades=?, autorizacaoImagem=?, objetivosCoach=?, camposCustom=?, updatedAt=? WHERE id=? AND turmaId=?")
         .run(b.nome, b.dataNascimento || null, b.grupoId || null, b.encarregado || "", b.contacto || "", b.notasMedicas || "",
-          b.foto || null, b.ativo === false ? 0 : 1, habilidades, b.autorizacaoImagem ? 1 : 0, b.objetivosCoach || "", nowIso(), id, req.membership.turmaId);
+          b.foto || null, b.ativo === false ? 0 : 1, habilidades, b.autorizacaoImagem ? 1 : 0, b.objetivosCoach || "", camposCustom, nowIso(), id, req.membership.turmaId);
     } else {
-      return db.prepare("INSERT INTO atletas (id,tenantId,turmaId,grupoId,nome,dataNascimento,encarregado,contacto,notasMedicas,foto,ativo,habilidades,autorizacaoImagem,objetivosCoach,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      return db.prepare("INSERT INTO atletas (id,tenantId,turmaId,grupoId,nome,dataNascimento,encarregado,contacto,notasMedicas,foto,ativo,habilidades,autorizacaoImagem,objetivosCoach,camposCustom,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
         .run(id, req.membership.tenantId, req.membership.turmaId, b.grupoId || null, b.nome, b.dataNascimento || null,
           b.encarregado || "", b.contacto || "", b.notasMedicas || "", b.foto || null, b.ativo === false ? 0 : 1, habilidades,
-          b.autorizacaoImagem ? 1 : 0, b.objetivosCoach || "", nowIso());
+          b.autorizacaoImagem ? 1 : 0, b.objetivosCoach || "", camposCustom, nowIso());
     }
   },
 });
@@ -183,6 +188,62 @@ simpleResource({
     } else {
       return db.prepare("INSERT INTO microciclos_tipos (id,tenantId,turmaId,nome,planoGenerico,cor,ordem,updatedAt) VALUES (?,?,?,?,?,?,?,?)")
         .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.planoGenerico || "", b.cor || "c1", b.ordem || 1, nowIso());
+    }
+  },
+});
+
+simpleResource({
+  path: "habilidades-tipos", table: "habilidades_tipos", writeRoles: ["manager"],
+  buildInsert: (req, id, isUpdate) => {
+    const b = req.body;
+    if (isUpdate) {
+      return db.prepare("UPDATE habilidades_tipos SET nome=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.ordem || 1, nowIso(), id, req.membership.turmaId);
+    } else {
+      return db.prepare("INSERT INTO habilidades_tipos (id,tenantId,turmaId,nome,ordem,updatedAt) VALUES (?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.ordem || 1, nowIso());
+    }
+  },
+});
+
+simpleResource({
+  path: "estados-presenca", table: "estados_presenca", writeRoles: ["manager"],
+  buildInsert: (req, id, isUpdate) => {
+    const b = req.body;
+    if (isUpdate) {
+      return db.prepare("UPDATE estados_presenca SET nome=?, cor=?, contaComoPresenca=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.cor || "c1", b.contaComoPresenca ? 1 : 0, b.ordem || 1, nowIso(), id, req.membership.turmaId);
+    } else {
+      return db.prepare("INSERT INTO estados_presenca (id,tenantId,turmaId,nome,cor,contaComoPresenca,ordem,updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.cor || "c1", b.contaComoPresenca ? 1 : 0, b.ordem || 1, nowIso());
+    }
+  },
+});
+
+simpleResource({
+  path: "criterios-avaliacao", table: "criterios_avaliacao", writeRoles: ["manager"],
+  buildInsert: (req, id, isUpdate) => {
+    const b = req.body;
+    if (isUpdate) {
+      return db.prepare("UPDATE criterios_avaliacao SET nome=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.ordem || 1, nowIso(), id, req.membership.turmaId);
+    } else {
+      return db.prepare("INSERT INTO criterios_avaliacao (id,tenantId,turmaId,nome,ordem,updatedAt) VALUES (?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.ordem || 1, nowIso());
+    }
+  },
+});
+
+simpleResource({
+  path: "campos-personalizados", table: "campos_personalizados", writeRoles: ["manager"],
+  buildInsert: (req, id, isUpdate) => {
+    const b = req.body;
+    if (isUpdate) {
+      return db.prepare("UPDATE campos_personalizados SET nome=?, tipo=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.tipo || "texto", b.ordem || 1, nowIso(), id, req.membership.turmaId);
+    } else {
+      return db.prepare("INSERT INTO campos_personalizados (id,tenantId,turmaId,nome,tipo,ordem,updatedAt) VALUES (?,?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.tipo || "texto", b.ordem || 1, nowIso());
     }
   },
 });
@@ -271,14 +332,15 @@ router.post("/convites", requireMembership(["manager"]), (req, res) => {
 });
 
 router.get("/avaliacoes", requireMembership(), (req, res) => {
-  res.json(db.prepare("SELECT * FROM avaliacoes WHERE turmaId = ?").all(req.membership.turmaId).map((r) => parseJsonCols(r, ["snapshotHabilidades"])));
+  res.json(db.prepare("SELECT * FROM avaliacoes WHERE turmaId = ?").all(req.membership.turmaId).map((r) => parseJsonCols(r, ["snapshotHabilidades", "snapshotCriterios"])));
 });
 router.post("/avaliacoes", requireMembership(["manager", "ajudante"]), (req, res) => {
   const b = req.body;
   const id = b.id || uuid();
-  db.prepare("INSERT INTO avaliacoes (id,tenantId,turmaId,atletaId,tipo,mesocicloId,data,observacoesGerais,snapshotHabilidades,autorId,autorNome,criadoEm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+  db.prepare("INSERT INTO avaliacoes (id,tenantId,turmaId,atletaId,tipo,mesocicloId,data,observacoesGerais,snapshotHabilidades,snapshotCriterios,autorId,autorNome,criadoEm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
     .run(id, req.membership.tenantId, req.membership.turmaId, b.atletaId, b.tipo, b.mesocicloId || null, b.data,
-      b.observacoesGerais || "", JSON.stringify(b.snapshotHabilidades || {}), b.autorId || req.userId, b.autorNome || "", b.criadoEm || nowIso());
+      b.observacoesGerais || "", JSON.stringify(b.snapshotHabilidades || {}), JSON.stringify(b.snapshotCriterios || {}),
+      b.autorId || req.userId, b.autorNome || "", b.criadoEm || nowIso());
   res.json({ ok: true, id });
 });
 router.delete("/avaliacoes/:id", requireMembership(["manager"]), (req, res) => {
@@ -288,7 +350,12 @@ router.delete("/avaliacoes/:id", requireMembership(["manager"]), (req, res) => {
 
 router.get("/memberships", requireMembership(["manager"]), (req, res) => {
   const rows = db.prepare("SELECT m.*, u.nome as userNome, u.email as userEmail FROM memberships m JOIN users u ON u.id = m.userId WHERE m.turmaId = ? AND m.estado='ativo'").all(req.membership.turmaId);
-  res.json(rows);
+  res.json(rows.map((r) => parseJsonCols(r, ["permissoesExtra"])));
+});
+router.put("/memberships/:id/permissoes", requireMembership(["manager"]), (req, res) => {
+  db.prepare("UPDATE memberships SET permissoesExtra=?, updatedAt=? WHERE id=? AND turmaId=?")
+    .run(JSON.stringify(req.body.permissoesExtra || []), nowIso(), req.params.id, req.membership.turmaId);
+  res.json({ ok: true });
 });
 router.delete("/memberships/:id", requireMembership(["manager"]), (req, res) => {
   db.prepare("DELETE FROM memberships WHERE id = ? AND turmaId = ?").run(req.params.id, req.membership.turmaId);

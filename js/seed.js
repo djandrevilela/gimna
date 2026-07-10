@@ -67,6 +67,30 @@
     ];
     await DB.bulkPutSilent("microciclosTipos", microciclosSeed);
 
+    const habilidadesSeed = HABILIDADES.map((nome, i) => ({
+      id: DB.uuid(), tenantId, turmaId, nome, ordem: i + 1, updatedAt: new Date().toISOString(),
+    }));
+    await DB.bulkPutSilent("habilidadesTipos", habilidadesSeed);
+
+    const estadosPresencaSeed = [
+      { id: DB.uuid(), tenantId, turmaId, nome: "Presente", valor: "presente", cor: "c5", contaComoPresenca: true, ordem: 1, updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Falta", valor: "falta", cor: "c4", contaComoPresenca: false, ordem: 2, updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Falta Justificada", valor: "falta_justificada", cor: "c3", contaComoPresenca: false, ordem: 3, updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Doença", valor: "doenca", cor: "c2", contaComoPresenca: false, ordem: 4, updatedAt: new Date().toISOString() },
+    ];
+    await DB.bulkPutSilent("estadosPresenca", estadosPresencaSeed);
+
+    const criteriosSeed = [
+      { id: DB.uuid(), tenantId, turmaId, nome: "Atitude", ordem: 1, updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Pontualidade", ordem: 2, updatedAt: new Date().toISOString() },
+      { id: DB.uuid(), tenantId, turmaId, nome: "Trabalho de equipa", ordem: 3, updatedAt: new Date().toISOString() },
+    ];
+    await DB.bulkPutSilent("criteriosAvaliacao", criteriosSeed);
+
+    await DB.put("camposPersonalizados", {
+      id: DB.uuid(), tenantId, turmaId, nome: "Escola", tipo: "texto", ordem: 1, updatedAt: new Date().toISOString(),
+    }, { silent: true });
+
     const activeKids = criarTenantSimples("ActiveKids", "Classe de multiatividades, 5-8 anos.");
     const gimnoKids = criarTenantSimples("GimnoKids", "Classe de iniciação à ginástica, 4-7 anos.");
     await DB.bulkPutSilent("tenants", [activeKids.tenant, gimnoKids.tenant]);

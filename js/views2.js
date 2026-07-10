@@ -51,7 +51,7 @@
     }).join("");
 
     return `
-      <div class="section-title"><h2>Calendário da Época</h2>${Auth.isAdmin() ? `<button class="btn btn-accent btn-sm" data-action="newEvento">+ Novo evento / treino extra</button>` : ""}</div>
+      <div class="section-title"><h2>Calendário da Época</h2>${Auth.can("editarCalendario") ? `<button class="btn btn-accent btn-sm" data-action="newEvento">+ Novo evento / treino extra</button>` : ""}</div>
       <div class="mat-line"></div>
       <div class="field-row" style="max-width:520px; margin-bottom:8px;">
         <div class="field"><label>Mesociclo</label>
@@ -114,7 +114,7 @@
     ]);
     const catalogo = U.byTurma(await DB.getAll("microciclosTipos"));
     const catalogoNomes = catalogo.length ? catalogo.map((c) => c.nome) : Season.defaultCatalogo().map((c) => c.nome);
-    const canEdit = Auth.isAdmin();
+    const canEdit = Auth.can("editarPlanos");
     const canMark = Auth.can("markAttendance");
 
     if (s.feriado) {
@@ -128,7 +128,7 @@
     }
 
     if (s.categoria && s.categoria !== "treino") {
-      const canEditEvento = Auth.isAdmin();
+      const canEditEvento = Auth.can("editarCalendario");
       const CATEGORIA_LABEL = { extra: "Treino extra", prova: "Prova", evento: "Exibição / Evento" };
       return `
         <a href="#/calendario" style="font-size:.85rem; color:var(--ink-soft); text-decoration:none;">← Calendário</a>
@@ -175,8 +175,9 @@
     const mesosAll = await DB.getAll("mesociclos");
     const sessComments = comentarios.filter((c) => c.targetType === "sessao" && c.targetId === id).sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
 
-    const states = ["presente", "falta", "falta_justificada", "doenca"];
-    const stateLabels = { presente: "P", falta: "F", falta_justificada: "FJ", doenca: "D" };
+    const estadosPresenca = await U.getEstadosPresenca();
+    const states = estadosPresenca.map((e) => e.valor);
+    const stateLabels = Object.fromEntries(estadosPresenca.map((e) => [e.valor, e.nome.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)]));
     const activeTab = (global.__tabState && global.__tabState.session) || "plano";
 
     return `
@@ -261,10 +262,10 @@
         <div class="card">
           ${!canMark ? `<div class="perm-note">Sem permissão para marcar presenças.</div>` : ""}
           <div style="display:flex; gap:14px; font-size:.76rem; color:var(--ink-soft); margin-bottom:10px; flex-wrap:wrap;">
-            <span><span class="chip" style="background:var(--success); color:#fff;">P</span> Presente</span>
-            <span><span class="chip" style="background:var(--danger); color:#fff;">F</span> Falta</span>
-            <span><span class="chip" style="background:var(--warn); color:#fff;">FJ</span> Falta justificada</span>
-            <span><span class="chip" style="background:var(--info); color:#fff;">D</span> Doença</span>
+            ${estadosPresenca.map((e) => {
+              const corMap = { c1: "var(--primary)", c2: "var(--accent)", c3: "var(--info)", c4: "var(--warn)", c5: "var(--success)", c6: "#8A8477" };
+              return `<span><span class="chip" style="background:${corMap[e.cor] || "var(--primary)"}; color:#fff;">${esc(stateLabels[e.valor])}</span> ${esc(e.nome)}</span>`;
+            }).join("")}
           </div>
           ${turmaAtletas.map((a) => {
             const g = grupoById[a.grupoId];
@@ -277,9 +278,13 @@
                   ${g ? `<div class="secondary-text">${esc(g.nome)}</div>` : ""}
                 </div>
                 <div style="display:flex; gap:4px;">
-                  ${states.map((st) => `
-                    <button class="att-btn ${cur && cur.estado === st ? "state-" + st : ""}" ${canMark ? "" : "disabled"} data-action="markAttendance" data-session="${s.id}" data-athlete="${a.id}" data-state="${st}">${stateLabels[st]}</button>
-                  `).join("")}
+                  ${states.map((st) => {
+                    const entry = estadosPresenca.find((e) => e.valor === st);
+                    const corMap = { c1: "var(--primary)", c2: "var(--accent)", c3: "var(--info)", c4: "var(--warn)", c5: "var(--success)", c6: "#8A8477" };
+                    const ativo = cur && cur.estado === st;
+                    const corBtn = corMap[entry ? entry.cor : "c1"] || "var(--primary)";
+                    return `<button class="att-btn" style="${ativo ? `background:${corBtn}; border-color:${corBtn}; color:#fff;` : ""}" ${canMark ? "" : "disabled"} data-action="markAttendance" data-session="${s.id}" data-athlete="${a.id}" data-state="${st}" title="${esc(entry ? entry.nome : st)}">${esc(stateLabels[st])}</button>`;
+                  }).join("")}
                 </div>
               </div>`;
           }).join("") || `<div class="empty-state">Sem atletas nesta turma.</div>`}
@@ -303,6 +308,8 @@
     const turma = Auth.activeMembership ? await DB.get("turmas", Auth.activeMembership.turmaId) : null;
     const queue = await DB.getAll("syncQueue");
     const pending = queue.filter((q) => !q.synced).length;
+    const minhasPrefs = await DB.get("preferencias", Auth.current.id);
+    const meuNotifPrefs = (minhasPrefs && minhasPrefs.notifPrefs) || {};
 
     let membrosHtml = "";
     if (isManager) {
@@ -318,10 +325,14 @@
           <tbody>
             ${minhaTurma.map((m) => {
               const u = userById[m.userId];
+              const nPerms = (m.permissoesExtra || []).length;
               return `<tr>
                 <td>${esc(u ? u.nome : "?")}</td><td>${esc(u ? u.email : "?")}</td>
-                <td><span class="chip chip-role-${m.role === "manager" ? "admin" : "user"}">${m.role === "manager" ? "Gestor" : "Ajudante"}</span></td>
-                <td>${u && u.id !== Auth.current.id ? `<button class="icon-btn" data-action="removeMembership" data-id="${m.id}">🗑</button>` : `<span class="secondary-text">tu</span>`}</td>
+                <td><span class="chip chip-role-${m.role === "manager" ? "admin" : "user"}">${m.role === "manager" ? "Gestor" : "Ajudante"}</span>${m.role === "ajudante" && nPerms ? ` <span class="secondary-text">+${nPerms}</span>` : ""}</td>
+                <td style="display:flex; gap:6px; justify-content:flex-end;">
+                  ${m.role === "ajudante" ? `<button class="icon-btn" data-action="editPermissoesAjudante" data-id="${m.id}" data-nome="${esc(u ? u.nome : "")}" title="Permissões">🔧</button>` : ""}
+                  ${u && u.id !== Auth.current.id ? `<button class="icon-btn" data-action="removeMembership" data-id="${m.id}">🗑</button>` : `<span class="secondary-text">tu</span>`}
+                </td>
               </tr>`;
             }).join("")}
             ${convitesPendentes.map((c) => `
@@ -384,6 +395,18 @@
       </div>
 
       <div class="card">
+        <div class="eyebrow">O que queres receber</div>
+        <p style="font-size:.82rem; color:var(--ink-soft); margin-top:4px;">Escolhe que tipo de lembretes queres receber (aplica-se quando os pushes estiverem ligados).</p>
+        <form data-form="saveNotifPrefs" style="margin-top:8px;">
+          <div class="field"><label><input type="checkbox" name="notif_treinos" ${meuNotifPrefs.treinos !== false ? "checked" : ""} style="width:auto; margin-right:6px;">Treinos e eventos</label></div>
+          <div class="field"><label><input type="checkbox" name="notif_aniversarios" ${meuNotifPrefs.aniversarios !== false ? "checked" : ""} style="width:auto; margin-right:6px;">Aniversários</label></div>
+          <div class="field"><label><input type="checkbox" name="notif_avaliacoes" ${meuNotifPrefs.avaliacoes !== false ? "checked" : ""} style="width:auto; margin-right:6px;">Avaliações pendentes</label></div>
+          <div class="field"><label><input type="checkbox" name="notif_resumo" ${meuNotifPrefs.resumo !== false ? "checked" : ""} style="width:auto; margin-right:6px;">Resumo periódico</label></div>
+          <button type="submit" class="btn btn-ghost btn-sm">Guardar</button>
+        </form>
+      </div>
+
+      <div class="card">
         <div class="eyebrow">Sincronização</div>
         <p style="margin-top:6px;">${pending} alteração(ões) por sincronizar neste dispositivo.</p>
         <button class="btn btn-ghost btn-sm" data-action="forceSync">Sincronizar agora</button>
@@ -440,9 +463,10 @@
   // ---------------------------------------------------------------
   async function estatisticas() {
     const data = await Stats.loadAll();
-    const habs = Seed.HABILIDADES;
-    const att = Stats.attendanceBreakdown(data.presencas);
-    const ranking = Stats.rankAthletesByAttendance(data.atletas, data.presencas);
+    const habs = await U.getHabilidadesNomes();
+    const estadosPresenca = await U.getEstadosPresenca();
+    const att = Stats.attendanceBreakdown(data.presencas, estadosPresenca);
+    const ranking = Stats.rankAthletesByAttendance(data.atletas, data.presencas, estadosPresenca);
     const melhores = ranking.slice(0, 5);
     const piores = ranking.slice(-5).reverse();
     const seguimento = Stats.followUpList(data.atletas, data.sessoes, data.presencas, { lastN: 5, minFaltas: 2 });
@@ -547,9 +571,26 @@
   global.Views = global.Views || {};
   Object.assign(global.Views, { calendario, sessaoDetail, definicoes, estatisticas });
   global.Views._helpers = global.Views._helpers || {};
+  function permissoesFormHtml(membership, nome) {
+    const perms = membership.permissoesExtra || [];
+    const opcoes = [
+      { key: "editarAtletas", label: "Criar e editar atletas e grupos" },
+      { key: "editarPlanos", label: "Editar planos de treino e mesociclos" },
+      { key: "editarCalendario", label: "Criar treinos extra, provas e exibições" },
+    ];
+    return `
+      <div class="modal-head"><h3>Permissões de ${esc(nome)}</h3><button class="icon-btn" data-action="closeModal">✕</button></div>
+      <form data-form="savePermissoesAjudante">
+        <input type="hidden" name="id" value="${membership.id}">
+        <p style="font-size:.85rem; color:var(--ink-soft); margin-bottom:10px;">Por omissão, um ajudante só vê tudo, marca presenças e comenta. Ativa aqui o que mais queres delegar.</p>
+        ${opcoes.map((o) => `<div class="field"><label><input type="checkbox" name="perm_${o.key}" ${perms.includes(o.key) ? "checked" : ""} style="width:auto; margin-right:6px;">${o.label}</label></div>`).join("")}
+        <div class="modal-actions"><button type="button" class="btn btn-ghost" data-action="closeModal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar</button></div>
+      </form>`;
+  }
   global.Views._helpers.inviteFormHtml = inviteFormHtml;
   global.Views._helpers.broadcastFormHtml = broadcastFormHtml;
   global.Views._helpers.eventoFormHtml = eventoFormHtml;
+  global.Views._helpers.permissoesFormHtml = permissoesFormHtml;
   global.afterRenderHooks = global.afterRenderHooks || [];
   global.afterRenderHooks.push(afterCalendario, afterSessaoDetail);
 })(window);
