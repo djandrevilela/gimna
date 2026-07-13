@@ -4,7 +4,6 @@
 (function (global) {
   "use strict";
   const { esc, fmtDateShort, fmtDateTime, todayStr, tipoClass, initials } = U;
-  const FASE_LABEL = { 1: "Iniciado", 2: "Com ajuda", 3: "A progredir", 4: "Quase autónomo", 5: "Autónomo" };
 
   function messageBubble(m) {
     const isManager = m.remetenteRole === "manager";
@@ -193,6 +192,7 @@
     `;
   }
 
+
   async function minhaEvolucao() {
     const atletaId = Auth.activeMembership.atletaId;
     const atleta = atletaId ? await DB.get("atletas", atletaId) : null;
@@ -203,8 +203,24 @@
     const presencaValores = new Set(estadosPresenca.filter((e) => e.contaComoPresenca).map((e) => e.valor));
     const total = presencas.length, presentes = presencas.filter((p) => presencaValores.has(p.estado)).length;
     const pct = total ? Math.round((presentes / total) * 100) : null;
-    const habilidades = await U.getHabilidadesNomes();
+    const [habilidadesCatalogo, categorias, turma] = await Promise.all([
+      U.getHabilidadesCatalogo(), U.getCategoriasHabilidades(), DB.get("turmas", Auth.activeMembership.turmaId),
+    ]);
+    const cores = U.coresProgresso(turma);
     const fases = atleta.habilidades || {};
+
+    const semCategoria = habilidadesCatalogo.filter((h) => !h.categoriaId);
+    const gruposObjetivos = categorias.map((c) => ({ categoria: c, itens: habilidadesCatalogo.filter((h) => h.categoriaId === c.id) })).filter((g) => g.itens.length);
+    if (semCategoria.length) gruposObjetivos.push({ categoria: null, itens: semCategoria });
+
+    function barraHabilidade(h) {
+      const fase = fases[h.nome] || 1;
+      return `
+        <div style="margin-bottom:14px;">
+          <div style="font-size:.86rem; margin-bottom:5px;"><strong>${esc(h.nome)}</strong></div>
+          ${U.faseBarHtml(fase, cores)}
+        </div>`;
+    }
 
     return `
       <div class="section-title"><h2>A Minha Evolução</h2></div>
@@ -213,19 +229,12 @@
         <div class="card stat-card"><div class="v">${pct !== null ? pct + "%" : "—"}</div><div class="l">Presença (${presentes}/${total} sessões)</div></div>
         <div class="card"><div class="eyebrow">Grupo de treino</div><p style="margin-top:6px;">${grupo ? `<span class="chip ${U.grupoClass(grupo.ordem)}">${esc(grupo.nome)}</span>` : "Ainda sem grupo atribuído."}</p></div>
       </div>
-      <div class="card" style="margin-top:14px;">
-        <p style="color:var(--ink-soft); font-size:.85rem;">Cada habilidade evolui em 5 passos, do "Iniciado" ao "Autónomo".</p>
-        ${habilidades.map((h) => {
-          const fase = fases[h] || 1;
-          return `
-            <div style="margin-bottom:14px;">
-              <div style="display:flex; justify-content:space-between; font-size:.86rem; margin-bottom:5px;">
-                <strong>${esc(h)}</strong><span style="color:var(--ink-soft)">${esc(FASE_LABEL[fase])}</span>
-              </div>
-              <div class="skill-phase-track">${[1, 2, 3, 4, 5].map((n) => `<div class="seg ${n <= fase ? "on" : ""}"></div>`).join("")}</div>
-            </div>`;
-        }).join("")}
-      </div>
+      ${gruposObjetivos.length ? gruposObjetivos.map((g) => `
+        <div class="card" style="margin-top:14px;">
+          <div class="eyebrow">${g.categoria ? `<span class="chip chip-${g.categoria.cor || "c1"}">${esc(g.categoria.nome)}</span>` : "Outros objetivos"}</div>
+          <div style="margin-top:10px;">${g.itens.map(barraHabilidade).join("")}</div>
+        </div>
+      `).join("") : `<div class="empty-state">Ainda sem objetivos definidos para esta turma.</div>`}
     `;
   }
 

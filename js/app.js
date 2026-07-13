@@ -548,9 +548,26 @@
     });
   }
 
+  const DEFAULT_CORES_PROGRESSO = ["#2B2B2B", "#8B5CF6", "#F0B429", "#E67E22", "#2E8B57"];
+  function coresProgresso(turma) {
+    return (turma && turma.coresFases && turma.coresFases.length === 5) ? turma.coresFases : DEFAULT_CORES_PROGRESSO.slice();
+  }
+  async function getCategoriasHabilidades() {
+    return byTurma(await DB.getAll("categoriasHabilidades")).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  }
+
   async function getHabilidadesNomes() {
     const cat = byTurma(await DB.getAll("habilidadesTipos"));
     return cat.length ? cat.sort((a, b) => (a.ordem || 0) - (b.ordem || 0)).map((c) => c.nome) : Seed.HABILIDADES;
+  }
+  function faseBarHtml(fase, cores) {
+    fase = Math.max(1, Math.min(5, fase || 1));
+    const cor = cores[fase - 1];
+    return `<div class="skill-phase-track">${[1, 2, 3, 4, 5].map((n) => `<div class="seg" style="${n <= fase ? `background:${cor};` : ""}"></div>`).join("")}</div>`;
+  }
+
+  async function getHabilidadesCatalogo() {
+    return byTurma(await DB.getAll("habilidadesTipos")).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
   }
   async function getEstadosPresenca() {
     const cat = byTurma(await DB.getAll("estadosPresenca"));
@@ -570,5 +587,5 @@
   }
 
   // Expor utilitários para os outros ficheiros (views.js, actions.js)
-  global.U = { esc, calcAge, fmtDateShort, fmtDateTime, todayStr, tipoClass, grupoClass, initials, avatarHtml, resizeImageFile, toast, openModal, closeModal, triggerInstall, renderRoute, renderShell, renderLogin, MESES, MESES_EXT, byTurma, byTenant, makeSortable, getHabilidadesNomes, getEstadosPresenca, getCriteriosAvaliacao, getCamposPersonalizados };
+  global.U = { esc, calcAge, fmtDateShort, fmtDateTime, todayStr, tipoClass, grupoClass, initials, avatarHtml, resizeImageFile, toast, openModal, closeModal, triggerInstall, renderRoute, renderShell, renderLogin, MESES, MESES_EXT, byTurma, byTenant, makeSortable, getHabilidadesNomes, getHabilidadesCatalogo, getEstadosPresenca, getCriteriosAvaliacao, getCamposPersonalizados, getCategoriasHabilidades, coresProgresso, DEFAULT_CORES_PROGRESSO, faseBarHtml };
 })(window);

@@ -841,22 +841,91 @@
   }
 
   Object.assign(Actions,
-    makeCatalogActions("habilidadesTipos", "habilidade", "Habilidade"),
     makeCatalogActions("estadosPresenca", "estadoPresenca", "EstadoPresenca", {
       buildExtra: (fd) => ({ valor: (fd.get("nome") || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "_"), cor: fd.get("cor") || "c1", contaComoPresenca: fd.get("contaComoPresenca") === "on" }),
     }),
     makeCatalogActions("criteriosAvaliacao", "criterio", "Criterio"),
     makeCatalogActions("camposPersonalizados", "campoPersonalizado", "CampoPersonalizado", {
       buildExtra: (fd) => ({ tipo: fd.get("tipo") || "texto" }),
+    }),
+    makeCatalogActions("categoriasHabilidades", "categoriaHabilidade", "CategoriaHabilidade", {
+      buildExtra: (fd) => ({ cor: fd.get("cor") || "c1" }),
     })
   );
+
+  // ---------------- Objetivos técnicos (habilidades) — formulário próprio ----------------
+  Actions.newHabilidade = async () => {
+    if (!requireAdmin()) return;
+    const categorias = await U.getCategoriasHabilidades();
+    openModal(Views._helpers.habilidadeFormHtml(null, categorias));
+  };
+  Actions.editHabilidade = async (ds) => {
+    if (!requireAdmin()) return;
+    const [item, categorias] = await Promise.all([DB.get("habilidadesTipos", ds.id), U.getCategoriasHabilidades()]);
+    openModal(Views._helpers.habilidadeFormHtml(item, categorias));
+  };
+  Actions.deleteHabilidade = async (ds) => {
+    if (!requireAdmin()) return;
+    if (!confirm("Remover este objetivo técnico? Os atletas mantêm o progresso já registado, mas deixa de aparecer nas fichas.")) return;
+    await DB.remove("habilidadesTipos", ds.id);
+    toast("Removido."); await renderRoute();
+  };
+  Actions.saveHabilidade = async (form) => {
+    if (!requireAdmin()) return;
+    const fd = new FormData(form);
+    const id = fd.get("id") || undefined;
+    const existing = id ? await DB.get("habilidadesTipos", id) : null;
+    const criterios = {};
+    [1, 2, 3, 4, 5].forEach((n) => { criterios[n] = fd.get("criterio_" + n) || ""; });
+    const record = Object.assign({}, existing, {
+      id, tenantId: ctxTenant(), turmaId: ctxTurma(),
+      nome: fd.get("nome"), categoriaId: fd.get("categoriaId") || null, criterios,
+      ordem: (existing && existing.ordem) || 99,
+    });
+    await DB.put("habilidadesTipos", record);
+    closeModal(); toast("Objetivo guardado."); await renderRoute();
+  };
+
+  Actions.copiarCategoriasMicrociclos = async () => {
+    if (!requireAdmin()) return;
+    const [microciclos, categoriasAtuais] = await Promise.all([DB.getAll("microciclosTipos"), U.getCategoriasHabilidades()]);
+    const microciclosTurma = U.byTurma(microciclos);
+    const nomesExistentes = new Set(categoriasAtuais.map((c) => c.nome.toLowerCase()));
+    let n = 0;
+    for (const m of microciclosTurma) {
+      if (nomesExistentes.has(m.nome.toLowerCase())) continue;
+      await DB.put("categoriasHabilidades", {
+        tenantId: ctxTenant(), turmaId: ctxTurma(), nome: m.nome, cor: m.cor || "c1",
+        ordem: categoriasAtuais.length + n + 1,
+      });
+      n++;
+    }
+    toast(n ? `${n} categoria(s) copiada(s) dos microciclos.` : "Todas as categorias já existiam.");
+    await renderRoute();
+  };
+
+  Actions.saveCoresProgresso = async (form) => {
+    if (!requireAdmin()) return;
+    const fd = new FormData(form);
+    const turma = await DB.get("turmas", ctxTurma());
+    turma.coresFases = [1, 2, 3, 4, 5].map((n) => fd.get("cor_" + n));
+    await DB.put("turmas", turma);
+    toast("Cores de progresso guardadas."); await renderRoute();
+  };
+  Actions.resetCoresProgresso = async () => {
+    if (!requireAdmin()) return;
+    const turma = await DB.get("turmas", ctxTurma());
+    turma.coresFases = null;
+    await DB.put("turmas", turma);
+    toast("Cores repostas."); await renderRoute();
+  };
 
   Actions.reordenarCatalogo = async (idPrefix, novaOrdemIds) => {
     if (!requireAdmin()) return;
     const storeMap = {
       "habilidades-tipos": "habilidadesTipos", "estados-presenca": "estadosPresenca",
       "criterios-avaliacao": "criteriosAvaliacao", "campos-personalizados": "camposPersonalizados",
-      "microciclos-catalogo": "microciclosTipos", "grupos": "grupos",
+      "microciclos-catalogo": "microciclosTipos", "grupos": "grupos", "categorias-habilidades": "categoriasHabilidades",
     };
     const store = storeMap[idPrefix];
     if (!store) return;

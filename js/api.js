@@ -68,6 +68,7 @@
     mensagens: "mensagens",
     avaliacoes: "avaliacoes",
     habilidadesTipos: "habilidades-tipos",
+    categoriasHabilidades: "categorias-habilidades",
     estadosPresenca: "estados-presenca",
     criteriosAvaliacao: "criterios-avaliacao",
     camposPersonalizados: "campos-personalizados",

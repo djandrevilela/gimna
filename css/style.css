@@ -240,8 +240,7 @@ table.simple tr:last-child td { border-bottom: none; }
 .progress-bar > div { height: 100%; background: var(--primary); }
 
 .skill-phase-track { display: flex; gap: 4px; }
-.skill-phase-track .seg { flex: 1; height: 8px; border-radius: 4px; background: var(--paper-2); }
-.skill-phase-track .seg.on { background: var(--accent); }
+.skill-phase-track .seg { flex: 1; height: 10px; border-radius: 5px; background: var(--paper-2); }
 
 /* Dashboard widgets */
 .dash-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; align-items: start; }

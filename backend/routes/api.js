@@ -65,16 +65,17 @@ router.post("/turmas", requireMembership(["manager"]), (req, res) => {
 
 router.get("/turmas/:id", requireMembership(), (req, res) => {
   const row = db.prepare("SELECT * FROM turmas WHERE id = ?").get(req.params.id);
-  res.json(parseJsonCols(row, ["diasSemana", "feriados", "padraoMicrociclo"]));
+  res.json(parseJsonCols(row, ["diasSemana", "feriados", "padraoMicrociclo", "coresFases"]));
 });
 
 router.put("/turmas/:id", requireMembership(["manager"]), (req, res) => {
   const b = req.body;
-  db.prepare("UPDATE turmas SET nome=?, descricao=?, horario=?, epocaInicio=?, epocaFim=?, resumoObjetivos=?, diasSemana=?, feriados=?, padraoMicrociclo=?, corPrimaria=?, corAccent=?, logoUrl=?, resumoPeriodicidade=?, updatedAt=? WHERE id=?")
+  db.prepare("UPDATE turmas SET nome=?, descricao=?, horario=?, epocaInicio=?, epocaFim=?, resumoObjetivos=?, diasSemana=?, feriados=?, padraoMicrociclo=?, corPrimaria=?, corAccent=?, logoUrl=?, resumoPeriodicidade=?, coresFases=?, updatedAt=? WHERE id=?")
     .run(b.nome, b.descricao || "", b.horario || "", b.epocaInicio || null, b.epocaFim || null, b.resumoObjetivos || "",
       JSON.stringify(b.diasSemana || []), JSON.stringify(b.feriados || []),
       b.padraoMicrociclo ? JSON.stringify(b.padraoMicrociclo) : null,
       b.corPrimaria || null, b.corAccent || null, b.logoUrl || null, b.resumoPeriodicidade || "off",
+      b.coresFases ? JSON.stringify(b.coresFases) : null,
       nowIso(), req.params.id);
   res.json({ ok: true });
 });
@@ -193,15 +194,30 @@ simpleResource({
 });
 
 simpleResource({
-  path: "habilidades-tipos", table: "habilidades_tipos", writeRoles: ["manager"],
+  path: "habilidades-tipos", table: "habilidades_tipos", jsonCols: ["criterios"], writeRoles: ["manager"],
+  buildInsert: (req, id, isUpdate) => {
+    const b = req.body;
+    const criterios = JSON.stringify(b.criterios || {});
+    if (isUpdate) {
+      return db.prepare("UPDATE habilidades_tipos SET nome=?, categoriaId=?, criterios=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.categoriaId || null, criterios, b.ordem || 1, nowIso(), id, req.membership.turmaId);
+    } else {
+      return db.prepare("INSERT INTO habilidades_tipos (id,tenantId,turmaId,nome,categoriaId,criterios,ordem,updatedAt) VALUES (?,?,?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.categoriaId || null, criterios, b.ordem || 1, nowIso());
+    }
+  },
+});
+
+simpleResource({
+  path: "categorias-habilidades", table: "categorias_habilidades", writeRoles: ["manager"],
   buildInsert: (req, id, isUpdate) => {
     const b = req.body;
     if (isUpdate) {
-      return db.prepare("UPDATE habilidades_tipos SET nome=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
-        .run(b.nome, b.ordem || 1, nowIso(), id, req.membership.turmaId);
+      return db.prepare("UPDATE categorias_habilidades SET nome=?, cor=?, ordem=?, updatedAt=? WHERE id=? AND turmaId=?")
+        .run(b.nome, b.cor || "c1", b.ordem || 1, nowIso(), id, req.membership.turmaId);
     } else {
-      return db.prepare("INSERT INTO habilidades_tipos (id,tenantId,turmaId,nome,ordem,updatedAt) VALUES (?,?,?,?,?,?)")
-        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.ordem || 1, nowIso());
+      return db.prepare("INSERT INTO categorias_habilidades (id,tenantId,turmaId,nome,cor,ordem,updatedAt) VALUES (?,?,?,?,?,?,?)")
+        .run(id, req.membership.tenantId, req.membership.turmaId, b.nome, b.cor || "c1", b.ordem || 1, nowIso());
     }
   },
 });
@@ -372,16 +388,21 @@ router.get("/turmas/:id/exportar-tudo", requireMembership(["manager"]), (req, re
   const turmaId = req.params.id;
   const dump = {
     exportadoEm: nowIso(),
-    turma: parseJsonCols(db.prepare("SELECT * FROM turmas WHERE id=?").get(turmaId), ["diasSemana", "feriados", "padraoMicrociclo"]),
+    turma: parseJsonCols(db.prepare("SELECT * FROM turmas WHERE id=?").get(turmaId), ["diasSemana", "feriados", "padraoMicrociclo", "coresFases"]),
     grupos: db.prepare("SELECT * FROM grupos WHERE turmaId=?").all(turmaId),
-    atletas: db.prepare("SELECT * FROM atletas WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["habilidades"])),
+    atletas: db.prepare("SELECT * FROM atletas WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["habilidades", "camposCustom"])),
     mesociclos: db.prepare("SELECT * FROM mesociclos WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["planosPorMicrociclo"])),
     microciclosTipos: db.prepare("SELECT * FROM microciclos_tipos WHERE turmaId=?").all(turmaId),
+    habilidadesTipos: db.prepare("SELECT * FROM habilidades_tipos WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["criterios"])),
+    categoriasHabilidades: db.prepare("SELECT * FROM categorias_habilidades WHERE turmaId=?").all(turmaId),
+    estadosPresenca: db.prepare("SELECT * FROM estados_presenca WHERE turmaId=?").all(turmaId),
+    criteriosAvaliacao: db.prepare("SELECT * FROM criterios_avaliacao WHERE turmaId=?").all(turmaId),
+    camposPersonalizados: db.prepare("SELECT * FROM campos_personalizados WHERE turmaId=?").all(turmaId),
     sessoes: db.prepare("SELECT * FROM sessoes WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["planosGrupo", "planosAtleta"])),
     presencas: db.prepare("SELECT p.* FROM presencas p JOIN sessoes s ON s.id=p.sessaoId WHERE s.turmaId=?").all(turmaId),
     comentarios: db.prepare("SELECT * FROM comentarios WHERE tenantId=?").all(req.membership.tenantId),
     mensagens: db.prepare("SELECT * FROM mensagens WHERE turmaId=?").all(turmaId),
-    avaliacoes: db.prepare("SELECT * FROM avaliacoes WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["snapshotHabilidades"])),
+    avaliacoes: db.prepare("SELECT * FROM avaliacoes WHERE turmaId=?").all(turmaId).map((r) => parseJsonCols(r, ["snapshotHabilidades", "snapshotCriterios"])),
     memberships: db.prepare("SELECT * FROM memberships WHERE turmaId=?").all(turmaId),
   };
   res.json(dump);

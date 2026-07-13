@@ -337,8 +337,8 @@
       DB.get("atletas", id), DB.getAll("grupos"), DB.getAll("turmas"), DB.getAll("sessoes"), DB.getAll("presencas"), DB.getAll("comentarios"),
       DB.getAll("mesociclos"), DB.getAll("avaliacoes"),
     ]);
-    const [habilidadesNomes, estadosPresenca, criterios, camposPersonalizados] = await Promise.all([
-      U.getHabilidadesNomes(), U.getEstadosPresenca(), U.getCriteriosAvaliacao(), U.getCamposPersonalizados(),
+    const [habilidadesNomes, estadosPresenca, criterios, camposPersonalizados, habilidadesCatalogo, categoriasHabilidades] = await Promise.all([
+      U.getHabilidadesNomes(), U.getEstadosPresenca(), U.getCriteriosAvaliacao(), U.getCamposPersonalizados(), U.getHabilidadesCatalogo(), U.getCategoriasHabilidades(),
     ]);
     if (!atleta) return `<div class="empty-state">Atleta não encontrado.</div>`;
     const grupo = grupos.find((g) => g.id === atleta.grupoId);
@@ -347,7 +347,8 @@
     const myPresencas = presencas.filter((p) => p.atletaId === id);
     const sessoesById = Object.fromEntries(sessoes.map((s) => [s.id, s]));
     const total = myPresencas.length;
-    const presentes = myPresencas.filter((p) => p.estado === "presente").length;
+    const presencaValores = new Set(estadosPresenca.filter((e) => e.contaComoPresenca).map((e) => e.valor));
+    const presentes = myPresencas.filter((p) => presencaValores.has(p.estado)).length;
     const pct = total ? Math.round((presentes / total) * 100) : null;
     const myComments = comentarios.filter((c) => c.targetType === "atleta" && c.targetId === id).sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
     const turmaMesociclos = U.byTurma(mesociclos).sort((a, b) => a.dataInicio.localeCompare(b.dataInicio));
@@ -356,8 +357,12 @@
     const mesociclosAvaliadosIds = new Set(minhasAvaliacoes.filter((av) => av.tipo === "mesociclo").map((av) => av.mesocicloId));
     const pendentes = turmaMesociclos.filter((m) => m.dataFim < today && !mesociclosAvaliadosIds.has(m.id));
 
-    const habilidades = habilidadesNomes;
+    const coresProgresso = U.coresProgresso(turma);
     const fases = atleta.habilidades || {};
+    const categoriaByIdLocal = Object.fromEntries(categoriasHabilidades.map((c) => [c.id, c]));
+    const semCategoriaLocal = habilidadesCatalogo.filter((h) => !h.categoriaId);
+    const gruposObjetivosCoach = categoriasHabilidades.map((c) => ({ categoria: c, itens: habilidadesCatalogo.filter((h) => h.categoriaId === c.id) })).filter((g) => g.itens.length);
+    if (semCategoriaLocal.length) gruposObjetivosCoach.push({ categoria: null, itens: semCategoriaLocal });
     const activeTab = (global.__tabState && global.__tabState.athlete) || "info";
 
     return `
@@ -427,26 +432,33 @@
       </div>
 
       <div data-tab-panel="skills" style="${activeTab === "skills" ? "" : "display:none"}">
-        <div class="card">
-          <p style="color:var(--ink-soft); font-size:.85rem;">Fase 1 = pré-requisitos · Fase 5 = autónomo (ver Plano Anual, Secção 7).</p>
-          ${habilidades.map((h) => {
-            const fase = fases[h] || 1;
-            return `
-              <div style="margin-bottom:14px;">
-                <div style="display:flex; justify-content:space-between; font-size:.86rem; margin-bottom:5px;">
-                  <strong>${esc(h)}</strong><span style="color:var(--ink-soft)">Fase ${fase}/5</span>
-                </div>
-                <div class="skill-phase-track">
-                  ${[1, 2, 3, 4, 5].map((n) => `<div class="seg ${n <= fase ? "on" : ""}"></div>`).join("")}
-                </div>
-                ${canEdit ? `
-                  <div style="margin-top:6px; display:flex; gap:6px;">
-                    <button class="btn btn-ghost btn-sm" data-action="skillPhase" data-id="${atleta.id}" data-skill="${esc(h)}" data-delta="-1">− fase</button>
-                    <button class="btn btn-ghost btn-sm" data-action="skillPhase" data-id="${atleta.id}" data-skill="${esc(h)}" data-delta="1">+ fase</button>
-                  </div>` : ""}
-              </div>`;
-          }).join("")}
-        </div>
+        ${gruposObjetivosCoach.length ? gruposObjetivosCoach.map((g) => `
+          <div class="card" style="margin-bottom:14px;">
+            <div class="eyebrow">${g.categoria ? `<span class="chip chip-${g.categoria.cor || "c1"}">${esc(g.categoria.nome)}</span>` : "Outros objetivos"}</div>
+            <div style="margin-top:10px;">
+              ${g.itens.map((h) => {
+                const fase = fases[h.nome] || 1;
+                const criteriosH = h.criterios || {};
+                const proximoTexto = fase < 5 ? (criteriosH[fase + 1] || "") : (criteriosH[5] || "");
+                const rotulo = fase < 5 ? "Próximo objetivo" : "Nível máximo atingido";
+                return `
+                  <div style="margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:.86rem; margin-bottom:5px;">
+                      <strong>${esc(h.nome)}</strong>
+                      <span style="color:var(--ink-soft); font-size:.78rem;">Nível ${fase}/5</span>
+                    </div>
+                    ${U.faseBarHtml(fase, coresProgresso)}
+                    ${proximoTexto ? `<p style="font-size:.8rem; color:var(--ink-soft); margin-top:5px;"><strong>${rotulo}:</strong> ${esc(proximoTexto)}</p>` : ""}
+                    ${canEdit ? `
+                      <div style="margin-top:6px; display:flex; gap:6px;">
+                        <button class="btn btn-ghost btn-sm" data-action="skillPhase" data-id="${atleta.id}" data-skill="${esc(h.nome)}" data-delta="-1" ${fase <= 1 ? "disabled" : ""}>− nível</button>
+                        <button class="btn btn-primary btn-sm" data-action="skillPhase" data-id="${atleta.id}" data-skill="${esc(h.nome)}" data-delta="1" ${fase >= 5 ? "disabled" : ""}>+ nível</button>
+                      </div>` : ""}
+                  </div>`;
+              }).join("")}
+            </div>
+          </div>
+        `).join("") : `<div class="empty-state">Ainda sem objetivos definidos — configura-os em Personalização.</div>`}
       </div>
 
       <div data-tab-panel="presencas" style="${activeTab === "presencas" ? "" : "display:none"}">

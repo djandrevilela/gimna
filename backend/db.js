@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS turmas (
   id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, nome TEXT NOT NULL, descricao TEXT,
   horario TEXT, epocaInicio TEXT, epocaFim TEXT, resumoObjetivos TEXT,
   diasSemana TEXT DEFAULT '[]', feriados TEXT DEFAULT '[]', padraoMicrociclo TEXT,
-  corPrimaria TEXT, corAccent TEXT, logoUrl TEXT, resumoPeriodicidade TEXT DEFAULT 'off',
+  corPrimaria TEXT, corAccent TEXT, logoUrl TEXT, resumoPeriodicidade TEXT DEFAULT 'off', coresFases TEXT,
   updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -111,7 +111,12 @@ CREATE TABLE IF NOT EXISTS avaliacoes (
 
 CREATE TABLE IF NOT EXISTS habilidades_tipos (
   id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, nome TEXT NOT NULL,
-  ordem INTEGER DEFAULT 1, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+  categoriaId TEXT, criterios TEXT DEFAULT '{}', ordem INTEGER DEFAULT 1, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS categorias_habilidades (
+  id TEXT PRIMARY KEY, tenantId TEXT NOT NULL, turmaId TEXT NOT NULL, nome TEXT NOT NULL,
+  cor TEXT DEFAULT 'c1', ordem INTEGER DEFAULT 1, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS estados_presenca (
@@ -170,5 +175,8 @@ addColumnIfMissing("memberships", "permissoesExtra", "TEXT DEFAULT '[]'");
 addColumnIfMissing("atletas", "camposCustom", "TEXT DEFAULT '{}'");
 addColumnIfMissing("avaliacoes", "snapshotCriterios", "TEXT DEFAULT '{}'");
 addColumnIfMissing("preferencias", "notifPrefs", "TEXT DEFAULT '{}'");
+addColumnIfMissing("turmas", "coresFases", "TEXT");
+addColumnIfMissing("habilidades_tipos", "categoriaId", "TEXT");
+addColumnIfMissing("habilidades_tipos", "criterios", "TEXT DEFAULT '{}'");
 
 module.exports = db;

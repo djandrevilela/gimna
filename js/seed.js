@@ -67,10 +67,59 @@
     ];
     await DB.bulkPutSilent("microciclosTipos", microciclosSeed);
 
-    const habilidadesSeed = HABILIDADES.map((nome, i) => ({
-      id: DB.uuid(), tenantId, turmaId, nome, ordem: i + 1, updatedAt: new Date().toISOString(),
-    }));
-    await DB.bulkPutSilent("habilidadesTipos", habilidadesSeed);
+    const catTrampolim = DB.uuid(), catSolo = DB.uuid();
+    await DB.bulkPutSilent("categoriasHabilidades", [
+      { id: catTrampolim, tenantId, turmaId, nome: "Trampolim", cor: "c1", ordem: 1, updatedAt: new Date().toISOString() },
+      { id: catSolo, tenantId, turmaId, nome: "Solo", cor: "c3", ordem: 2, updatedAt: new Date().toISOString() },
+    ]);
+
+    const habilidadesSeed = [
+      { nome: "Mortal à frente (mini-trampolim)", categoriaId: catTrampolim, criterios: {
+        1: "Ainda a trabalhar a base — saltos e receções no mini-trampolim.",
+        2: "Salta com os dois pés e mantém o corpo direito no ar.",
+        3: "Inicia a rotação à frente com ajuda do treinador.",
+        4: "Completa o mortal com assistência ligeira.",
+        5: "Executa o mortal à frente sozinho, com receção controlada.",
+      } },
+      { nome: "Mortal atrás (mini-trampolim invertido)", categoriaId: catTrampolim, criterios: {
+        1: "Ainda a trabalhar o salto e o equilíbrio de costas.",
+        2: "Mantém a postura correta no salto invertido.",
+        3: "Inicia a rotação atrás com ajuda do treinador.",
+        4: "Completa o mortal atrás com assistência ligeira.",
+        5: "Executa o mortal atrás sozinho, com receção controlada.",
+      } },
+      { nome: "Barani", categoriaId: catTrampolim, criterios: {
+        1: "Ainda a consolidar o mortal à frente antes de introduzir a rotação lateral.",
+        2: "Inicia a meia-volta com ajuda.",
+        3: "Coordena a rotação lateral com o mortal, com assistência.",
+        4: "Executa o barani com assistência ligeira.",
+        5: "Executa o barani sozinho, com receção controlada.",
+      } },
+      { nome: "Salto com passagem por pino (plinto)", categoriaId: catSolo, criterios: {
+        1: "Ainda a trabalhar a corrida de balanço e o embalo.",
+        2: "Salta com os dois pés no trampolim antes do plinto.",
+        3: "Esticar as pernas e passar por cima do plinto com ajuda.",
+        4: "Executa a passagem com assistência ligeira.",
+        5: "Executa o salto sozinho, com receção controlada.",
+      } },
+      { nome: "Rondada + flic-flac (solo)", categoriaId: catSolo, criterios: {
+        1: "Ainda a consolidar a roda antes de introduzir a rondada.",
+        2: "Executa a rondada com boa colocação de mãos.",
+        3: "Inicia o flic-flac com ajuda do treinador.",
+        4: "Encadeia rondada + flic-flac com assistência ligeira.",
+        5: "Executa a sequência sozinho, com controlo total.",
+      } },
+      { nome: "Pino-roda-sentado", categoriaId: catSolo, criterios: {
+        1: "Ainda a trabalhar o equilíbrio do pino apoiado.",
+        2: "Mantém o pino por alguns segundos com ajuda.",
+        3: "Inicia a transição para a roda a partir do pino.",
+        4: "Encadeia pino-roda-sentado com assistência ligeira.",
+        5: "Executa a sequência sozinho, com controlo total.",
+      } },
+    ];
+    await DB.bulkPutSilent("habilidadesTipos", habilidadesSeed.map((h, i) => ({
+      id: DB.uuid(), tenantId, turmaId, nome: h.nome, categoriaId: h.categoriaId, criterios: h.criterios, ordem: i + 1, updatedAt: new Date().toISOString(),
+    })));
 
     const estadosPresencaSeed = [
       { id: DB.uuid(), tenantId, turmaId, nome: "Presente", valor: "presente", cor: "c5", contaComoPresenca: true, ordem: 1, updatedAt: new Date().toISOString() },
